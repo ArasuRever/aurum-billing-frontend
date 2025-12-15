@@ -7,9 +7,14 @@ export const api = {
   addVendor: (data) => axios.post(`${API_URL}/vendors/add`, data),
   searchVendor: (q) => axios.get(`${API_URL}/vendors/search?q=${q}`),
   updateVendor: (id, data) => axios.put(`${API_URL}/vendors/${id}`, data),
+  
+  // Agents
   addAgent: (formData) => axios.post(`${API_URL}/vendors/add-agent`, formData),
-  vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
   getVendorAgents: (id) => axios.get(`${API_URL}/vendors/${id}/agents`),
+  updateAgent: (id, formData) => axios.put(`${API_URL}/vendors/agent/${id}`, formData), // NEW
+  deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`), // NEW
+
+  vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
   getVendorTransactions: (id) => axios.get(`${API_URL}/vendors/${id}/transactions`),
 
   // --- INVENTORY ---
