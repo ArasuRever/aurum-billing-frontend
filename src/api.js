@@ -27,4 +27,12 @@ export const api = {
   // --- BILLING ---
   searchBillingItem: (q) => axios.get(`${API_URL}/billing/search-item?q=${q}`),
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
+
+  // --- SHOPS (B2B) ---
+  addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
+  getShops: () => axios.get(`${API_URL}/shops/list`),
+  getShopDetails: (id) => axios.get(`${API_URL}/shops/${id}`),
+  updateShop: (id, data) => axios.put(`${API_URL}/shops/${id}`, data),
+  shopTransaction: (data) => axios.post(`${API_URL}/shops/transaction`, data),
+  deleteShopTransaction: (id) => axios.delete(`${API_URL}/shops/transaction/${id}`),
 };
