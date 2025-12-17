@@ -11,8 +11,8 @@ export const api = {
   // Agents
   addAgent: (formData) => axios.post(`${API_URL}/vendors/add-agent`, formData),
   getVendorAgents: (id) => axios.get(`${API_URL}/vendors/${id}/agents`),
-  updateAgent: (id, formData) => axios.put(`${API_URL}/vendors/agent/${id}`, formData), // NEW
-  deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`), // NEW
+  updateAgent: (id, formData) => axios.put(`${API_URL}/vendors/agent/${id}`, formData),
+  deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`),
 
   vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
   getVendorTransactions: (id) => axios.get(`${API_URL}/vendors/${id}/transactions`),
@@ -24,10 +24,13 @@ export const api = {
   updateInventory: (id, data) => axios.put(`${API_URL}/inventory/update/${id}`, data),
   deleteInventory: (id) => axios.delete(`${API_URL}/inventory/${id}`),
 
-  // --- BILLING ---
+  // --- BILLING & PAYMENTS ---
   searchBillingItem: (q) => axios.get(`${API_URL}/billing/search-item?q=${q}`),
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
-  deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`), // NEW
+  deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`),
+  
+  // NEW: Balance Payments
+  addBalancePayment: (data) => axios.post(`${API_URL}/billing/add-payment`, data),
 
   // --- SHOPS (B2B) ---
   addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
@@ -43,8 +46,14 @@ export const api = {
   getCustomerDetails: (phone) => axios.get(`${API_URL}/customers/details/${phone}`),
   addCustomer: (data) => axios.post(`${API_URL}/customers/add`, data),
   updateCustomer: (id, data) => axios.put(`${API_URL}/customers/update/${id}`, data),
+  
+  // NEW: Customer Deletion & Restore
+  getRecycleBin: () => axios.get(`${API_URL}/customers/recycle-bin`),
+  softDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/soft-delete/${id}`),
+  restoreCustomer: (id) => axios.put(`${API_URL}/customers/restore/${id}`),
+  permanentDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/permanent/${id}`),
 
-  // --- BILLING & RETURNS ---
+  // --- RETURNS ---
   getInvoiceDetails: (invoiceId) => axios.get(`${API_URL}/billing/invoice/${invoiceId}`),
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
 };

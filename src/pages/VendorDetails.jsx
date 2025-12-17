@@ -93,12 +93,39 @@ function VendorDetails() {
   };
 
   // --- STOCK ACTIONS ---
+  
+  // Helper to determine default metal
+  const getDefaultMetal = () => {
+    if (!vendor) return 'GOLD';
+    if (vendor.vendor_type === 'SILVER') return 'SILVER';
+    return 'GOLD'; // Default for GOLD or BOTH
+  };
+
   const initStockForm = () => {
-    // UPDATED: Defaults are now empty strings '' instead of 0 or 91.60
-    setStockRows([{ metal_type: 'GOLD', stock_type: 'SINGLE', item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+    setStockRows([{ 
+      metal_type: getDefaultMetal(), // Auto-select metal 
+      stock_type: 'SINGLE', 
+      item_name: '', 
+      gross_weight: '', 
+      wastage_percent: '', 
+      making_charges: '', 
+      item_image: null, 
+      calc_total_pure: 0 
+    }]);
     setViewMode('add_stock');
   };
-  const handleAddRow = () => setStockRows([...stockRows, { metal_type: 'GOLD', stock_type: 'SINGLE', item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+
+  const handleAddRow = () => setStockRows([...stockRows, { 
+    metal_type: getDefaultMetal(), // Auto-select metal for new rows too
+    stock_type: 'SINGLE', 
+    item_name: '', 
+    gross_weight: '', 
+    wastage_percent: '', 
+    making_charges: '', 
+    item_image: null, 
+    calc_total_pure: 0 
+  }]);
+
   const removeRow = (i) => setStockRows(stockRows.filter((_, idx) => idx !== i));
 
   const handleRowChange = (index, field, value) => {
@@ -114,8 +141,7 @@ function VendorDetails() {
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
 
   const batchTotalPure = stockRows.reduce((sum, row) => sum + (parseFloat(row.calc_total_pure) || 0), 0).toFixed(3);
-  const batchTotalGross = stockRows.reduce((sum, row) => sum + (parseFloat(row.gross_weight) || 0), 0).toFixed(3);
-
+  
   const handleSubmitStock = async () => {
     const validRows = stockRows.filter(r => r.item_name && r.gross_weight);
     if (validRows.length === 0) return alert("Fill at least one row");
@@ -131,11 +157,16 @@ function VendorDetails() {
         formData.append('wastage_percent', row.wastage_percent);
         formData.append('making_charges', row.making_charges);
         if (row.item_image) formData.append('item_image', row.item_image);
-        await api.addInventory(formData);
+        
+        await api.addInventory(formData); // <--- THIS API NOW UPDATES THE BALANCE AUTOMATICALLY
       }
-      const desc = `Stock Added: ${validRows.length} items (Gross: ${batchTotalGross}g)`;
-      await api.vendorTransaction({ vendor_id: id, type: 'STOCK_ADDED', description: desc, metal_weight: batchTotalPure, cash_amount: 0, conversion_rate: 0 });
-      alert('Stock Added'); setViewMode('overview'); loadAllData();
+
+      // ❌ DELETE THIS LINE BELOW (It causes the double counting)
+      // await api.vendorTransaction({ vendor_id: id, type: 'STOCK_ADDED', ... }); 
+
+      alert('Stock Added Successfully'); 
+      setViewMode('overview'); 
+      loadAllData();
     } catch(err) { alert('Error adding stock'); }
   };
 
@@ -197,10 +228,23 @@ function VendorDetails() {
               <tbody>
                 {stockRows.map((row, i) => (
                   <tr key={i}>
-                    <td><select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}><option>GOLD</option><option>SILVER</option></select></td>
+                    <td>
+                        <select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>
+                            <option>GOLD</option>
+                            <option>SILVER</option>
+                        </select>
+                    </td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{itemSuggestions.map((n, idx) => <option key={idx} value={n} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" accept="image/*" capture="environment" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
-                    <td><select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)}><option>SINGLE</option><option>BULK</option></select></td>
+                    
+                    {/* NEW: SINGLE vs BULK SELECTION */}
+                    <td>
+                        <select className={`form-select form-select-sm fw-bold ${row.stock_type==='BULK'?'text-warning':'text-primary'}`} value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)}>
+                            <option value="SINGLE">Single</option>
+                            <option value="BULK">Bulk</option>
+                        </select>
+                    </td>
+                    
                     <td><input type="number" step="0.001" className="form-control form-control-sm" value={row.gross_weight} onChange={e => handleRowChange(i, 'gross_weight', e.target.value)} /></td>
                     <td><input type="number" step="0.01" className="form-control form-control-sm" value={row.wastage_percent} onChange={e => handleRowChange(i, 'wastage_percent', e.target.value)} /></td>
                     <td><input type="number" className="form-control form-control-sm" value={row.making_charges} onChange={e => handleRowChange(i, 'making_charges', e.target.value)} /></td>
@@ -213,7 +257,7 @@ function VendorDetails() {
           </div>
           <div className="card-footer bg-white d-flex justify-content-between align-items-center">
             <button className="btn btn-outline-primary btn-sm" onClick={handleAddRow}>+ Row</button>
-            <div className="text-end"><span className="me-3 small fw-bold text-muted">BATCH PURE: <span className="text-success fs-5">{batchTotalPure} g</span></span><button className="btn btn-success fw-bold px-4" onClick={handleSubmitStock}>Save</button></div>
+            <div className="text-end"><span className="me-3 small fw-bold text-muted">BATCH PURE: <span className="text-success fs-5">{batchTotalPure} g</span></span><button className="btn btn-success fw-bold px-4" onClick={handleSubmitStock}>Save Stock</button></div>
           </div>
         </div>
       )}
@@ -226,6 +270,7 @@ function VendorDetails() {
                 <div className="card-header bg-white fw-bold d-flex justify-content-between"><span>Vendor (ID: {vendor.id})</span><button className="btn btn-sm btn-link" onClick={() => setShowEditVendor(true)}>Edit</button></div>
                 <div className="card-body">
                    <h5 className="fw-bold text-primary">{vendor.business_name}</h5>
+                   <span className="badge bg-light text-dark border mb-2">{vendor.vendor_type || 'BOTH'} VENDOR</span>
                    <p className="small mb-1"><i className="bi bi-telephone me-1"></i> {vendor.contact_number}</p>
                    <p className="small mb-1"><i className="bi bi-geo-alt me-1"></i> {vendor.address}</p>
                    <p className="small mb-0"><i className="bi bi-receipt me-1"></i> GST: {vendor.gst_number}</p>
@@ -247,7 +292,11 @@ function VendorDetails() {
                       <tr key={item.id}>
                         <td className="small text-muted">{new Date(item.created_at).toLocaleDateString()}</td>
                         <td>{item.item_image && <img src={item.item_image} className="rounded border" style={{width:'40px',height:'40px',objectFit:'cover'}} />}</td>
-                        <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode} | ID:{item.id}</div></td>
+                        <td>
+                            <div className="fw-bold small">{item.item_name}</div>
+                            <div className="small font-monospace text-muted">{item.barcode}</div>
+                            {item.stock_type === 'BULK' && <span className="badge bg-warning text-dark" style={{fontSize:'0.6rem'}}>BULK STOCK</span>}
+                        </td>
                         <td><div className="fw-bold">{item.gross_weight}g</div><div className="small text-muted">{item.wastage_percent}%</div></td>
                         <td><button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => startEditItem(item)}><i className="bi bi-pencil"></i></button><button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDeleteItem(item.id)}><i className="bi bi-trash"></i></button></td>
                       </tr>
@@ -326,6 +375,16 @@ function VendorDetails() {
                   <div className="modal-body">
                      <input className="form-control mb-2" placeholder="Name" value={editVendorForm.business_name} onChange={e => setEditVendorForm({...editVendorForm, business_name: e.target.value})} />
                      <input className="form-control mb-2" placeholder="Contact" value={editVendorForm.contact_number} onChange={e => setEditVendorForm({...editVendorForm, contact_number: e.target.value})} />
+                     
+                     <div className="mb-2">
+                        <label className="small fw-bold">Vendor Type</label>
+                        <select className="form-select" value={editVendorForm.vendor_type} onChange={e => setEditVendorForm({...editVendorForm, vendor_type: e.target.value})}>
+                            <option value="BOTH">Gold & Silver (Both)</option>
+                            <option value="GOLD">Gold Only</option>
+                            <option value="SILVER">Silver Only</option>
+                        </select>
+                     </div>
+
                      <textarea className="form-control mb-2" placeholder="Address" value={editVendorForm.address} onChange={e => setEditVendorForm({...editVendorForm, address: e.target.value})} />
                      <input className="form-control mb-2" placeholder="GST" value={editVendorForm.gst_number} onChange={e => setEditVendorForm({...editVendorForm, gst_number: e.target.value})} />
                   </div>

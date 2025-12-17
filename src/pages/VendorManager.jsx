@@ -12,7 +12,15 @@ function VendorManager() {
   const [showAddAgent, setShowAddAgent] = useState(false);
 
   // --- FORMS ---
-  const [vendorForm, setVendorForm] = useState({ business_name: '', contact_number: '', address: '', gst_number: '' });
+  // Added 'vendor_type' with default 'BOTH'
+  const [vendorForm, setVendorForm] = useState({ 
+    business_name: '', 
+    contact_number: '', 
+    address: '', 
+    gst_number: '', 
+    vendor_type: 'BOTH' 
+  });
+  
   const [agentForm, setAgentForm] = useState({ vendor_id: '', agent_name: '', agent_phone: '', agent_photo: null });
 
   useEffect(() => {
@@ -33,7 +41,7 @@ function VendorManager() {
       await api.addVendor(vendorForm);
       alert('Vendor Added Successfully');
       setShowAddVendor(false);
-      setVendorForm({ business_name: '', contact_number: '', address: '', gst_number: '' });
+      setVendorForm({ business_name: '', contact_number: '', address: '', gst_number: '', vendor_type: 'BOTH' });
       fetchVendors();
     } catch (err) { alert('Error adding vendor'); }
   };
@@ -82,6 +90,7 @@ function VendorManager() {
             <thead className="table-light">
               <tr>
                 <th>Business Name</th>
+                <th>Type</th>
                 <th>Contact</th>
                 <th>Balance (Pure)</th>
                 <th>Action</th>
@@ -93,6 +102,11 @@ function VendorManager() {
                   <td>
                     <div className="fw-bold text-primary">{vendor.business_name}</div>
                     <div className="small text-muted" style={{fontSize: '0.75rem'}}>ID: {vendor.id}</div>
+                  </td>
+                  <td>
+                    <span className={`badge ${vendor.vendor_type === 'GOLD' ? 'bg-warning text-dark' : vendor.vendor_type === 'SILVER' ? 'bg-secondary' : 'bg-info text-dark'}`}>
+                        {vendor.vendor_type || 'BOTH'}
+                    </span>
                   </td>
                   <td>{vendor.contact_number}</td>
                   <td className={`fw-bold ${parseFloat(vendor.balance_pure_weight) > 0 ? 'text-danger' : 'text-success'}`}>
@@ -124,6 +138,17 @@ function VendorManager() {
                   <label className="form-label small fw-bold">Business Name</label>
                   <input className="form-control" value={vendorForm.business_name} onChange={e => setVendorForm({...vendorForm, business_name: e.target.value})} />
                 </div>
+                
+                {/* NEW: VENDOR TYPE SELECTION */}
+                <div className="mb-3">
+                    <label className="form-label small fw-bold">Vendor Dealing Type</label>
+                    <select className="form-select" value={vendorForm.vendor_type} onChange={e => setVendorForm({...vendorForm, vendor_type: e.target.value})}>
+                        <option value="BOTH">Gold & Silver (Both)</option>
+                        <option value="GOLD">Gold Only</option>
+                        <option value="SILVER">Silver Only</option>
+                    </select>
+                </div>
+
                 <div className="mb-3">
                   <label className="form-label small fw-bold">Contact Number</label>
                   <input className="form-control" value={vendorForm.contact_number} onChange={e => setVendorForm({...vendorForm, contact_number: e.target.value})} />

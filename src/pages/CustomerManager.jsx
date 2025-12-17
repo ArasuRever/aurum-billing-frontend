@@ -6,32 +6,20 @@ function CustomerManager() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState('active'); // 'active' or 'recycle'
   
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [newCust, setNewCust] = useState({ name: '', phone: '', address: '', profile_image: '' });
 
-  useEffect(() => { 
-    console.log("CustomerManager Mounted. Loading customers..."); // DEBUG LOG 1
-    loadCustomers(); 
-  }, []);
+  useEffect(() => { loadCustomers(); }, [viewMode]);
 
   const loadCustomers = async () => {
     try { 
-      const res = await api.getCustomers(); 
-      console.log("API Response:", res); // DEBUG LOG 2: Check the raw response
-      console.log("Customer Data:", res.data); // DEBUG LOG 3: Check the array
-      
-      if (Array.isArray(res.data)) {
-        setCustomers(res.data);
-      } else {
-        console.error("Data is not an array!", res.data);
-        alert("Error: Backend returned invalid data format.");
-      }
-    } catch (err) { 
-      console.error("API Error:", err); // DEBUG LOG 4: Check for Network Errors
-      alert("Failed to connect to server. Check Console (F12)."); 
-    }
+      // Toggle between Active List and Recycle Bin
+      const res = viewMode === 'active' ? await api.getCustomers() : await api.getRecycleBin();
+      setCustomers(res.data || []);
+    } catch (err) { console.error(err); }
   };
 
   const handleImageUpload = (e) => {
@@ -50,7 +38,22 @@ function CustomerManager() {
       setShowModal(false);
       loadCustomers();
       setNewCust({ name: '', phone: '', address: '', profile_image: '' });
-    } catch (err) { alert("Error saving"); }
+    } catch (err) { alert("Error saving customer"); }
+  };
+
+  // ACTIONS
+  const handleSoftDelete = async (id) => {
+    if(!window.confirm("Move to Recycle Bin?")) return;
+    try { await api.softDeleteCustomer(id); loadCustomers(); } catch(err) { alert("Error deleting"); }
+  };
+
+  const handleRestore = async (id) => {
+    try { await api.restoreCustomer(id); loadCustomers(); } catch(err) { alert("Error restoring"); }
+  };
+
+  const handlePermanentDelete = async (id) => {
+    if(!window.confirm("WARNING: This will permanently delete the customer and cannot be undone!")) return;
+    try { await api.permanentDeleteCustomer(id); loadCustomers(); } catch(err) { alert("Error deleting permanently"); }
   };
 
   const filtered = customers.filter(c => 
@@ -61,17 +64,35 @@ function CustomerManager() {
   return (
     <div className="container-fluid">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold text-primary"><i className="bi bi-people-fill me-2"></i>Customer Management</h2>
+        <h2 className="fw-bold text-primary">
+            <i className={`bi ${viewMode === 'active' ? 'bi-people-fill' : 'bi-trash'} me-2`}></i>
+            {viewMode === 'active' ? 'Customer Management' : 'Recycle Bin'}
+        </h2>
+        
         <div className="d-flex gap-2">
-            <input className="form-control" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
-            <button className="btn btn-primary text-nowrap" onClick={() => setShowModal(true)}><i className="bi bi-person-plus-fill me-2"></i>Add Customer</button>
+            {/* View Toggle Button */}
+            <button className={`btn ${viewMode === 'active' ? 'btn-outline-secondary' : 'btn-outline-primary'}`} 
+                    onClick={() => setViewMode(viewMode === 'active' ? 'recycle' : 'active')}>
+                {viewMode === 'active' ? <><i className="bi bi-trash me-2"></i>Recycle Bin</> : <><i className="bi bi-arrow-left me-2"></i>Back to List</>}
+            </button>
+            
+            {viewMode === 'active' && (
+                <>
+                    <input className="form-control" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+                    <button className="btn btn-primary text-nowrap" onClick={() => setShowModal(true)}>
+                        <i className="bi bi-person-plus-fill me-2"></i>Add Customer
+                    </button>
+                </>
+            )}
         </div>
       </div>
 
-      <div className="card shadow-sm">
+      <div className="card shadow-sm border-0">
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
-            <thead className="table-light"><tr><th>Profile</th><th>Name</th><th>Phone</th><th>Address</th><th>Joined</th><th></th></tr></thead>
+            <thead className="table-light">
+                <tr><th>Profile</th><th>Name</th><th>Phone</th><th>Address</th><th>Joined</th><th>Actions</th></tr>
+            </thead>
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id}>
@@ -85,16 +106,28 @@ function CustomerManager() {
                   <td>{c.phone}</td>
                   <td className="small text-muted text-truncate" style={{maxWidth:'200px'}}>{c.address || '-'}</td>
                   <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : '-'}</td>
-                  <td className="text-end"><button className="btn btn-sm btn-outline-primary" onClick={() => navigate(`/customers/${c.phone}`)}>View Profile</button></td>
+                  <td className="text-end">
+                      {viewMode === 'active' ? (
+                          <>
+                            <button className="btn btn-sm btn-outline-primary me-2" onClick={() => navigate(`/customers/${c.phone}`)}>View</button>
+                            <button className="btn btn-sm btn-outline-danger" onClick={() => handleSoftDelete(c.id)} title="Delete"><i className="bi bi-trash"></i></button>
+                          </>
+                      ) : (
+                          <>
+                             <button className="btn btn-sm btn-success me-2" onClick={() => handleRestore(c.id)} title="Restore"><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</button>
+                             <button className="btn btn-sm btn-danger" onClick={() => handlePermanentDelete(c.id)} title="Delete Forever"><i className="bi bi-x-lg"></i></button>
+                          </>
+                      )}
+                  </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan="6" className="text-center py-4">No customers found (Check Console F12 if list should not be empty)</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan="6" className="text-center py-4 text-muted">No customers found</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ADD CUSTOMER MODAL */}
+      {/* ADD CUSTOMER MODAL (Only needed in Active View) */}
       {showModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog">
@@ -109,7 +142,6 @@ function CustomerManager() {
                         }
                     </label>
                     <input type="file" id="imgUpload" className="d-none" accept="image/*" onChange={handleImageUpload} />
-                    <div className="small text-muted mt-1">Click to Upload / Capture</div>
                  </div>
                  <input className="form-control mb-2" placeholder="Full Name" value={newCust.name} onChange={e => setNewCust({...newCust, name: e.target.value})} />
                  <input className="form-control mb-2" placeholder="Phone Number" value={newCust.phone} onChange={e => setNewCust({...newCust, phone: e.target.value})} />
