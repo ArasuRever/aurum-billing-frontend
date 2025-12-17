@@ -24,9 +24,18 @@ function Billing() {
 
   // --- ENTRY & CART STATE ---
   const [entry, setEntry] = useState({
-    item_id: null, item_name: '', item_desc: '', barcode: '',
-    metal_type: 'GOLD', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null
+    item_id: null, 
+    item_name: '', 
+    item_desc: '', 
+    barcode: '',
+    metal_type: 'GOLD', 
+    gross_weight: '', 
+    wastage_percent: '', 
+    making_charges: '', 
+    item_image: null,
+    neighbour_id: null // <--- Stores the Shop ID for manual items
   });
+
   const [exchangeEntry, setExchangeEntry] = useState({
     name: 'Old Gold', metal_type: 'GOLD', gross_weight: '', less_percent: '', less_weight: '', net_weight: 0, rate: '', total: 0
   });
@@ -38,7 +47,7 @@ function Billing() {
   const [includeGST, setIncludeGST] = useState(false);
   
   // --- PAYMENT STATE ---
-  const [paidAmount, setPaidAmount] = useState(''); // Empty means full payment by default
+  const [paidAmount, setPaidAmount] = useState(''); 
 
   // --- PRINT / INVOICE STATE ---
   const [showInvoice, setShowInvoice] = useState(false);
@@ -90,10 +99,35 @@ function Billing() {
   const handleEntryChange = (field, value) => {
     let finalValue = value;
     let updates = { [field]: finalValue };
-    if (field === 'item_name' && entry.item_id) { updates.item_id = null; updates.barcode = ''; updates.item_image = null; }
+    
+    // 1. Reset ID if name changes (Switching from Inventory -> Manual)
+    if (field === 'item_name' && entry.item_id) { 
+        updates.item_id = null; 
+        updates.barcode = ''; 
+        updates.item_image = null; 
+        updates.neighbour_id = null; 
+    }
+
+    // 2. ROBUST NICK ID DETECTION
     if (field === 'item_desc') {
-        const matchedShop = shops.find(s => s.nick_id && s.nick_id === value.toUpperCase());
-        if (matchedShop) { updates[field] = `${matchedShop.nick_id} (ShopID:${matchedShop.id}) - `; }
+        const upper = finalValue.toUpperCase();
+        
+        // Find if text matches a Nick ID exactly OR starts with "NICK -"
+        // This ensures "RJ - Ring" still matches "RJ"
+        const matchedShop = shops.find(s => 
+            s.nick_id && (upper === s.nick_id || upper.startsWith(s.nick_id + ' '))
+        );
+
+        if (matchedShop) { 
+            updates.neighbour_id = matchedShop.id; // Capture ID
+            
+            // Auto-format only on exact match (prevents cursor jumping issues)
+            if (upper === matchedShop.nick_id) {
+                updates[field] = `${matchedShop.nick_id} - `; 
+            }
+        } else {
+            updates.neighbour_id = null;
+        }
     }
     setEntry(prev => ({ ...prev, ...updates }));
   };
@@ -110,19 +144,35 @@ function Billing() {
       id: itemToAdd.item_id || `MANUAL-${Date.now()}`,
       isManual: !itemToAdd.item_id,
       wastage_weight: wastWt,
-      rate: appliedRate, discount: '', total: 0
+      rate: appliedRate, 
+      discount: '', 
+      total: 0,
+      neighbour_id: itemToAdd.neighbour_id // <--- IMPORTANT: Pass ID to Cart
     };
+    
     setCart(prev => [...prev, newItem]);
-    setEntry({ item_id: null, item_name: '', item_desc: '', barcode: '', metal_type: entry.metal_type, gross_weight: '', wastage_percent: '', making_charges: '', item_image: null });
+    
+    // Reset Form
+    setEntry({ 
+        item_id: null, item_name: '', item_desc: '', barcode: '', 
+        metal_type: entry.metal_type, gross_weight: '', wastage_percent: '', 
+        making_charges: '', item_image: null, neighbour_id: null 
+    });
   };
 
-  const selectItem = (item) => { setSearchResults([]); performAddToCart({ ...item, item_id: item.id, item_desc: '' }); };
+  const selectItem = (item) => { 
+      setSearchResults([]); 
+      performAddToCart({ ...item, item_id: item.id, item_desc: '' }); 
+  };
+
   const handleManualAdd = () => {
     let finalName = entry.item_name || entry.item_desc;
     if (!finalName || !entry.gross_weight) return alert("Name & Weight Required");
     performAddToCart({ ...entry, item_name: finalName });
   };
+
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
+
   const updateCartItem = (index, field, value) => {
     const newCart = [...cart];
     const item = newCart[index];
@@ -195,7 +245,6 @@ function Billing() {
     if (cart.length === 0) return alert("Cart is empty");
     if (!selectedCustomer) return alert("Please select a Customer first");
 
-    // CONFIRMATION IF DEBT
     if (balancePending > 0) {
         const confirmMsg = `⚠️ PARTIAL PAYMENT DETECTED\n\nTotal Payable: ₹${netPayable.toLocaleString()}\nCash Received: ₹${cashReceived.toLocaleString()}\nBalance Pending: ₹${balancePending.toLocaleString()}\n\nProceed to save debt for ${selectedCustomer.name}?`;
         if (!window.confirm(confirmMsg)) return;
@@ -206,7 +255,11 @@ function Billing() {
       items: cart.map(item => ({
         item_id: item.item_id, 
         item_name: item.item_desc ? `${item.item_name} (${item.item_desc})` : item.item_name,
-        gross_weight: item.gross_weight, rate: item.rate, making_charges: item.making_charges,
+        gross_weight: item.gross_weight, 
+        rate: item.rate, 
+        making_charges: item.making_charges,
+        wastage_weight: item.wastage_weight, 
+        neighbour_id: item.neighbour_id, // <--- SEND ID TO BACKEND
         total: Math.round(calculateItemTotal(item))
       })),
       exchangeItems, 

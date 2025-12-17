@@ -36,21 +36,25 @@ function VendorDetails() {
 
   const loadAllData = async () => {
     try {
+      // 1. Load Vendor Details
       const allVendors = await api.searchVendor('');
       const v = allVendors.data.find(v => v.id === parseInt(id));
       if (v) { setVendor(v); setEditVendorForm(v); }
       
+      // 2. Load Inventory
       const itemRes = await api.getVendorInventory(id);
       setItems(itemRes.data);
       setItemSuggestions([...new Set(itemRes.data.map(i => i.item_name))]);
 
+      // 3. Load Transactions (Ledger)
       const transRes = await api.getVendorTransactions(id);
-      setTransactions(transRes.data);
+      setTransactions(transRes.data || []);
 
+      // 4. Load Agents
       const agentRes = await api.getVendorAgents(id);
-      setAgents(agentRes.data);
+      setAgents(agentRes.data || []);
 
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Error loading data:", err); }
   };
 
   // --- VENDOR ACTIONS ---
@@ -94,16 +98,18 @@ function VendorDetails() {
 
   // --- STOCK ACTIONS ---
   
-  // Helper to determine default metal
   const getDefaultMetal = () => {
     if (!vendor) return 'GOLD';
     if (vendor.vendor_type === 'SILVER') return 'SILVER';
-    return 'GOLD'; // Default for GOLD or BOTH
+    return 'GOLD'; 
   };
+
+  const showGoldOption = () => !vendor || !vendor.vendor_type || vendor.vendor_type === 'GOLD' || vendor.vendor_type === 'BOTH';
+  const showSilverOption = () => !vendor || !vendor.vendor_type || vendor.vendor_type === 'SILVER' || vendor.vendor_type === 'BOTH';
 
   const initStockForm = () => {
     setStockRows([{ 
-      metal_type: getDefaultMetal(), // Auto-select metal 
+      metal_type: getDefaultMetal(), 
       stock_type: 'SINGLE', 
       item_name: '', 
       gross_weight: '', 
@@ -116,7 +122,7 @@ function VendorDetails() {
   };
 
   const handleAddRow = () => setStockRows([...stockRows, { 
-    metal_type: getDefaultMetal(), // Auto-select metal for new rows too
+    metal_type: getDefaultMetal(), 
     stock_type: 'SINGLE', 
     item_name: '', 
     gross_weight: '', 
@@ -158,11 +164,8 @@ function VendorDetails() {
         formData.append('making_charges', row.making_charges);
         if (row.item_image) formData.append('item_image', row.item_image);
         
-        await api.addInventory(formData); // <--- THIS API NOW UPDATES THE BALANCE AUTOMATICALLY
+        await api.addInventory(formData); 
       }
-
-      // ❌ DELETE THIS LINE BELOW (It causes the double counting)
-      // await api.vendorTransaction({ vendor_id: id, type: 'STOCK_ADDED', ... }); 
 
       alert('Stock Added Successfully'); 
       setViewMode('overview'); 
@@ -200,8 +203,11 @@ function VendorDetails() {
   const soldItems = items.filter(i => i.status === 'SOLD');
 
   const getBadgeInfo = (txn) => {
+    // FIX: Safely handle null descriptions
+    const desc = txn.description ? txn.description.toLowerCase() : '';
+    
     if (txn.type === 'STOCK_ADDED') return { label: 'STOCK', color: 'text-danger' };
-    if (txn.description.toLowerCase().includes('deleted')) return { label: 'DELETED', color: 'text-warning' };
+    if (desc.includes('deleted')) return { label: 'DELETED', color: 'text-warning' };
     return { label: 'PAID', color: 'text-success' };
   };
 
@@ -230,14 +236,13 @@ function VendorDetails() {
                   <tr key={i}>
                     <td>
                         <select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>
-                            <option>GOLD</option>
-                            <option>SILVER</option>
+                            {showGoldOption() && <option value="GOLD">GOLD</option>}
+                            {showSilverOption() && <option value="SILVER">SILVER</option>}
                         </select>
                     </td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{itemSuggestions.map((n, idx) => <option key={idx} value={n} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" accept="image/*" capture="environment" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
                     
-                    {/* NEW: SINGLE vs BULK SELECTION */}
                     <td>
                         <select className={`form-select form-select-sm fw-bold ${row.stock_type==='BULK'?'text-warning':'text-primary'}`} value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)}>
                             <option value="SINGLE">Single</option>
@@ -313,7 +318,8 @@ function VendorDetails() {
           <div className="col-md-3">
              <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                 <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
-                <div className="display-6 fw-bold">{vendor.balance_pure_weight} g</div>
+                {/* FIX: Force display even if value is 0 or null */}
+                <div className="display-6 fw-bold">{parseFloat(vendor.balance_pure_weight || 0).toFixed(3)} g</div>
                 <button className="btn btn-light btn-sm w-100 mt-2 text-danger fw-bold" onClick={() => setShowRepayment(!showRepayment)}>{showRepayment?'Cancel':'+ Settlement'}</button>
              </div>
              {showRepayment && (
@@ -327,7 +333,30 @@ function VendorDetails() {
                  </div>
                </div>
              )}
-             <div className="card shadow-sm"><div className="card-header bg-white py-2 small fw-bold text-muted">Ledger</div><div className="card-body p-0 overflow-auto" style={{maxHeight:'40vh'}}><ul className="list-group list-group-flush small">{transactions.map(txn => { const badge = getBadgeInfo(txn); return (<li key={txn.id} className="list-group-item"><div className="d-flex justify-content-between"><span className={`fw-bold ${badge.color}`}>{badge.label}</span><span>{new Date(txn.created_at).toLocaleDateString()}</span></div><div className="mb-1 text-muted" style={{fontSize:'0.75rem'}}>{txn.description}</div><div className="d-flex justify-content-between align-items-center bg-light p-1 rounded"><div className="text-muted" style={{fontSize:'0.7rem'}}>Bal: <span className="text-dark fw-bold">{txn.balance_after}g</span></div><div className={`fw-bold ${badge.color}`}>{txn.type==='STOCK_ADDED'?'+':'-'} {txn.total_repaid_pure||txn.stock_pure_weight} g</div></div></li>)})}</ul></div></div>
+             <div className="card shadow-sm">
+               <div className="card-header bg-white py-2 small fw-bold text-muted">Ledger</div>
+               <div className="card-body p-0 overflow-auto" style={{maxHeight:'40vh'}}>
+                 <ul className="list-group list-group-flush small">
+                   {transactions.map(txn => { 
+                     const badge = getBadgeInfo(txn); 
+                     return (
+                       <li key={txn.id} className="list-group-item">
+                         <div className="d-flex justify-content-between">
+                           <span className={`fw-bold ${badge.color}`}>{badge.label}</span>
+                           <span>{new Date(txn.created_at).toLocaleDateString()}</span>
+                         </div>
+                         <div className="mb-1 text-muted" style={{fontSize:'0.75rem'}}>{txn.description}</div>
+                         <div className="d-flex justify-content-between align-items-center bg-light p-1 rounded">
+                           <div className="text-muted" style={{fontSize:'0.7rem'}}>Bal: <span className="text-dark fw-bold">{parseFloat(txn.balance_after).toFixed(3)}g</span></div>
+                           <div className={`fw-bold ${badge.color}`}>{txn.type==='STOCK_ADDED'?'+':'-'} {parseFloat(txn.total_repaid_pure||txn.stock_pure_weight).toFixed(3)} g</div>
+                         </div>
+                       </li>
+                     )
+                   })}
+                   {transactions.length === 0 && <li className="list-group-item text-center text-muted">No transactions found</li>}
+                 </ul>
+               </div>
+             </div>
           </div>
         </div>
       )}
