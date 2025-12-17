@@ -12,6 +12,9 @@ import Billing from './pages/Billing';
 import ShopManager from './pages/ShopManager';
 import ShopDetails from './pages/ShopDetails';
 
+import CustomerManager from './pages/CustomerManager';
+import CustomerDetails from './pages/CustomerDetails';
+
 function App() {
   return (
     <Router>
@@ -29,6 +32,9 @@ function App() {
 
             {/* INVENTORY */}
             <Route path="/inventory" element={<InventoryManager />} />
+
+            <Route path="/customers" element={<CustomerManager />} />
+            <Route path="/customers/:phone" element={<CustomerDetails />} />
             
             {/* BILLING */}
             <Route path="/billing" element={<Billing />} />

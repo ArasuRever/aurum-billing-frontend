@@ -27,6 +27,7 @@ export const api = {
   // --- BILLING ---
   searchBillingItem: (q) => axios.get(`${API_URL}/billing/search-item?q=${q}`),
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
+  deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`), // NEW
 
   // --- SHOPS (B2B) ---
   addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
@@ -35,4 +36,15 @@ export const api = {
   updateShop: (id, data) => axios.put(`${API_URL}/shops/${id}`, data),
   shopTransaction: (data) => axios.post(`${API_URL}/shops/transaction`, data),
   deleteShopTransaction: (id) => axios.delete(`${API_URL}/shops/transaction/${id}`),
+
+  // --- CUSTOMERS ---
+  searchCustomer: (query) => axios.get(`${API_URL}/customers/search?q=${query}`),
+  getCustomers: () => axios.get(`${API_URL}/customers/list`),
+  getCustomerDetails: (phone) => axios.get(`${API_URL}/customers/details/${phone}`),
+  addCustomer: (data) => axios.post(`${API_URL}/customers/add`, data),
+  updateCustomer: (id, data) => axios.put(`${API_URL}/customers/update/${id}`, data),
+
+  // --- BILLING & RETURNS ---
+  getInvoiceDetails: (invoiceId) => axios.get(`${API_URL}/billing/invoice/${invoiceId}`),
+  returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
 };
