@@ -33,7 +33,7 @@ function Billing() {
     wastage_percent: '', 
     making_charges: '', 
     item_image: null,
-    neighbour_id: null // <--- Stores the Shop ID for manual items
+    neighbour_id: null 
   });
 
   const [exchangeEntry, setExchangeEntry] = useState({
@@ -100,7 +100,6 @@ function Billing() {
     let finalValue = value;
     let updates = { [field]: finalValue };
     
-    // 1. Reset ID if name changes (Switching from Inventory -> Manual)
     if (field === 'item_name' && entry.item_id) { 
         updates.item_id = null; 
         updates.barcode = ''; 
@@ -108,20 +107,14 @@ function Billing() {
         updates.neighbour_id = null; 
     }
 
-    // 2. ROBUST NICK ID DETECTION
     if (field === 'item_desc') {
         const upper = finalValue.toUpperCase();
-        
-        // Find if text matches a Nick ID exactly OR starts with "NICK -"
-        // This ensures "RJ - Ring" still matches "RJ"
         const matchedShop = shops.find(s => 
             s.nick_id && (upper === s.nick_id || upper.startsWith(s.nick_id + ' '))
         );
 
         if (matchedShop) { 
-            updates.neighbour_id = matchedShop.id; // Capture ID
-            
-            // Auto-format only on exact match (prevents cursor jumping issues)
+            updates.neighbour_id = matchedShop.id; 
             if (upper === matchedShop.nick_id) {
                 updates[field] = `${matchedShop.nick_id} - `; 
             }
@@ -147,12 +140,11 @@ function Billing() {
       rate: appliedRate, 
       discount: '', 
       total: 0,
-      neighbour_id: itemToAdd.neighbour_id // <--- IMPORTANT: Pass ID to Cart
+      neighbour_id: itemToAdd.neighbour_id 
     };
     
     setCart(prev => [...prev, newItem]);
     
-    // Reset Form
     setEntry({ 
         item_id: null, item_name: '', item_desc: '', barcode: '', 
         metal_type: entry.metal_type, gross_weight: '', wastage_percent: '', 
@@ -187,7 +179,6 @@ function Billing() {
     setCart(newCart);
   };
 
-  // --- EXCHANGE HANDLERS ---
   const handleExchangeChange = (field, value) => {
     const newData = { ...exchangeEntry, [field]: value };
     const gross = parseFloat(field === 'gross_weight' ? value : newData.gross_weight) || 0;
@@ -216,7 +207,6 @@ function Billing() {
   };
   const removeExchangeItem = (index) => setExchangeItems(exchangeItems.filter((_, i) => i !== index));
 
-  // --- TOTALS CALCULATIONS ---
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -236,11 +226,9 @@ function Billing() {
   const netPayable = Math.round(netPayableRaw / 10) * 10;
   const roundOff = netPayable - netPayableRaw;
 
-  // --- PARTIAL PAYMENT LOGIC ---
   const cashReceived = paidAmount === '' ? netPayable : parseFloat(paidAmount);
   const balancePending = netPayable - cashReceived;
 
-  // --- SAVE & PRINT HANDLER ---
   const handleSaveAndPrint = async () => {
     if (cart.length === 0) return alert("Cart is empty");
     if (!selectedCustomer) return alert("Please select a Customer first");
@@ -255,11 +243,12 @@ function Billing() {
       items: cart.map(item => ({
         item_id: item.item_id, 
         item_name: item.item_desc ? `${item.item_name} (${item.item_desc})` : item.item_name,
+        metal_type: item.metal_type, // <--- IMPORTANT: Sends Metal Type
         gross_weight: item.gross_weight, 
         rate: item.rate, 
         making_charges: item.making_charges,
         wastage_weight: item.wastage_weight, 
-        neighbour_id: item.neighbour_id, // <--- SEND ID TO BACKEND
+        neighbour_id: item.neighbour_id,
         total: Math.round(calculateItemTotal(item))
       })),
       exchangeItems, 
@@ -285,10 +274,8 @@ function Billing() {
   return (
     <div className="container-fluid pb-5">
       <div className="row g-3">
-        {/* LEFT COLUMN */}
         <div className="col-md-9">
           
-          {/* CUSTOMER SEARCH */}
           <div className="row g-3 mb-3">
              {!selectedCustomer && (
                  <div className="col-md-12">
@@ -333,7 +320,6 @@ function Billing() {
              )}
           </div>
 
-          {/* QUICK ADD & CART */}
           <div className="card shadow-sm mb-3 border-primary border-2">
             <div className="card-body py-2">
                <div className="d-flex gap-3 mb-2 align-items-center">
@@ -357,7 +343,6 @@ function Billing() {
             </div>
           </div>
 
-          {/* CART TABLE */}
           <div className="card shadow-sm border-0 mb-3">
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
@@ -384,7 +369,6 @@ function Billing() {
             </div>
           </div>
 
-          {/* EXCHANGE SECTION */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-1 d-flex justify-content-between">
                 <span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Exchange / Old Gold</span>
@@ -420,7 +404,6 @@ function Billing() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: SUMMARY */}
         <div className="col-md-3">
             <div className="card shadow-sm bg-white h-100 border-0">
                 <div className="card-header bg-dark text-white text-center py-3"><h5 className="mb-0">SUMMARY</h5></div>
@@ -441,7 +424,6 @@ function Billing() {
                             {roundOff !== 0 && <small className="text-muted fst-italic d-block mt-1" style={{fontSize: '0.7rem'}}>Round off: {roundOff.toFixed(2)}</small>}
                         </div>
 
-                        {/* NEW: CASH RECEIVED INPUT */}
                         <div className="mb-3">
                             <label className="small fw-bold text-muted">Cash Received</label>
                             <div className="input-group">
@@ -465,7 +447,6 @@ function Billing() {
         </div>
       </div>
 
-      {/* ADD CUSTOMER MODAL */}
       {showCustomerModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog">
@@ -482,7 +463,6 @@ function Billing() {
         </div>
       )}
 
-      {/* INVOICE MODAL */}
       {showInvoice && lastBill && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1050}}>
            <div className="modal-dialog modal-lg">

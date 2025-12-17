@@ -36,25 +36,21 @@ function VendorDetails() {
 
   const loadAllData = async () => {
     try {
-      // 1. Load Vendor Details
       const allVendors = await api.searchVendor('');
       const v = allVendors.data.find(v => v.id === parseInt(id));
       if (v) { setVendor(v); setEditVendorForm(v); }
       
-      // 2. Load Inventory
       const itemRes = await api.getVendorInventory(id);
       setItems(itemRes.data);
       setItemSuggestions([...new Set(itemRes.data.map(i => i.item_name))]);
 
-      // 3. Load Transactions (Ledger)
       const transRes = await api.getVendorTransactions(id);
-      setTransactions(transRes.data || []);
+      setTransactions(transRes.data || []); // Ensure array
 
-      // 4. Load Agents
       const agentRes = await api.getVendorAgents(id);
       setAgents(agentRes.data || []);
 
-    } catch (err) { console.error("Error loading data:", err); }
+    } catch (err) { console.error("Error loading data", err); }
   };
 
   // --- VENDOR ACTIONS ---
@@ -98,6 +94,7 @@ function VendorDetails() {
 
   // --- STOCK ACTIONS ---
   
+  // Helper to determine default metal
   const getDefaultMetal = () => {
     if (!vendor) return 'GOLD';
     if (vendor.vendor_type === 'SILVER') return 'SILVER';
@@ -185,17 +182,31 @@ function VendorDetails() {
     if (['METAL', 'MIXED'].includes(repayForm.type) && repayForm.metal_weight) total += parseFloat(repayForm.metal_weight);
     return total.toFixed(3);
   };
+
   const handleRepayment = async () => {
     const total = calculateRepaymentTotal();
-    if (parseFloat(total) <= 0) return alert("Invalid");
+    if (parseFloat(total) <= 0) return alert("Invalid Amount");
+    
+    // Construct payload
     const payload = {
-      vendor_id: id, type: 'REPAYMENT', description: repayForm.description || 'Settlement',
+      vendor_id: id, 
+      type: 'REPAYMENT', 
+      description: repayForm.description || 'Settlement',
       metal_weight: (repayForm.type !== 'CASH') ? repayForm.metal_weight : 0,
       cash_amount: (repayForm.type !== 'METAL') ? repayForm.amount : 0,
       conversion_rate: (repayForm.type !== 'METAL') ? repayForm.rate : 0
     };
-    await api.vendorTransaction(payload);
-    alert('Saved'); setShowRepayment(false); setRepayForm({ type: 'CASH', amount: '', rate: '', metal_weight: '', description: '' }); loadAllData();
+
+    try {
+        await api.vendorTransaction(payload);
+        alert('Transaction Saved'); 
+        setShowRepayment(false); 
+        setRepayForm({ type: 'CASH', amount: '', rate: '', metal_weight: '', description: '' }); 
+        loadAllData();
+    } catch (err) {
+        console.error(err);
+        alert(`Error: ${err.response?.data?.error || err.message}`);
+    }
   };
 
   // --- HELPERS ---
@@ -203,9 +214,7 @@ function VendorDetails() {
   const soldItems = items.filter(i => i.status === 'SOLD');
 
   const getBadgeInfo = (txn) => {
-    // FIX: Safely handle null descriptions
     const desc = txn.description ? txn.description.toLowerCase() : '';
-    
     if (txn.type === 'STOCK_ADDED') return { label: 'STOCK', color: 'text-danger' };
     if (desc.includes('deleted')) return { label: 'DELETED', color: 'text-warning' };
     return { label: 'PAID', color: 'text-success' };
