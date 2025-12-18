@@ -283,22 +283,22 @@ function Billing() {
                         <div className="card-body">
                            <h5 className="card-title text-primary"><i className="bi bi-person-bounding-box me-2"></i>Find Customer</h5>
                            <div className="position-relative">
-                              <div className="input-group">
-                                <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
-                                <input className="form-control form-control-lg" placeholder="Enter Mobile Number or Name..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} autoFocus />
-                              </div>
-                              {customerResults.length > 0 ? (
-                                  <div className="position-absolute w-100 mt-1 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000}}>
-                                      {customerResults.map(cust => (
-                                          <button key={cust.id} className="list-group-item list-group-item-action d-flex justify-content-between p-3" onClick={() => selectCustomer(cust)}>
-                                              <div><h6 className="mb-0 fw-bold">{cust.name} <span className="badge bg-secondary ms-2" style={{fontSize: '0.7em'}}>ID: {cust.id}</span></h6><small className="text-muted">{cust.phone}</small></div>
-                                              <i className="bi bi-chevron-right"></i>
-                                          </button>
-                                      ))}
-                                  </div>
-                              ) : (
-                                  customerSearch.length > 2 && (<div className="position-absolute w-100 mt-1 shadow bg-white rounded p-3 text-center" style={{zIndex: 1000}}><p className="text-muted mb-2">Customer not found.</p><button className="btn btn-sm btn-primary" onClick={() => setShowCustomerModal(true)}>+ Add New Customer</button></div>)
-                              )}
+                             <div className="input-group">
+                               <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
+                               <input className="form-control form-control-lg" placeholder="Enter Mobile Number or Name..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} autoFocus />
+                             </div>
+                             {customerResults.length > 0 ? (
+                                 <div className="position-absolute w-100 mt-1 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000}}>
+                                     {customerResults.map(cust => (
+                                         <button key={cust.id} className="list-group-item list-group-item-action d-flex justify-content-between p-3" onClick={() => selectCustomer(cust)}>
+                                             <div><h6 className="mb-0 fw-bold">{cust.name} <span className="badge bg-secondary ms-2" style={{fontSize: '0.7em'}}>ID: {cust.id}</span></h6><small className="text-muted">{cust.phone}</small></div>
+                                             <i className="bi bi-chevron-right"></i>
+                                         </button>
+                                     ))}
+                                 </div>
+                             ) : (
+                                 customerSearch.length > 2 && (<div className="position-absolute w-100 mt-1 shadow bg-white rounded p-3 text-center" style={{zIndex: 1000}}><p className="text-muted mb-2">Customer not found.</p><button className="btn btn-sm btn-primary" onClick={() => setShowCustomerModal(true)}>+ Add New Customer</button></div>)
+                             )}
                            </div>
                         </div>
                      </div>
@@ -353,7 +353,7 @@ function Billing() {
                   {cart.map((item, i) => (
                     <tr key={i} className="text-center">
                       <td>{item.item_image ? <img src={item.item_image} className="rounded" style={{width:'35px', height:'35px', objectFit:'cover'}} /> : <i className="bi bi-gem text-muted opacity-25 fs-4"></i>}</td>
-                      <td className="text-start"><div className="fw-bold text-dark small text-truncate" style={{maxWidth: '200px'}}>{item.item_name}</div><div className="small text-muted" style={{fontSize: '0.7rem'}}>{item.item_id ? `ID: ${item.item_id}` : 'MANUAL'} {item.item_desc && ` | ${item.item_desc}`}</div></td>
+                      <td className="text-start"><div className="fw-bold text-dark small text-truncate" style={{maxWidth: '200px'}}>{item.item_name}</div><div className="small text-muted" style={{fontSize: '0.7rem'}}>{item.item_id ? `ID: ${item.item_id}` : 'MANUAL'} {item.item_desc && ` | ${item.item_desc}`} {item.neighbour_id && <span className="badge bg-warning text-dark border ms-1" style={{fontSize: '0.6rem'}}>Neighbour</span>}</div></td>
                       <td className="fw-bold">{item.gross_weight}</td>
                       <td><div className="input-group input-group-sm"><input type="number" className="form-control text-center px-1" placeholder="%" value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} /><span className="input-group-text px-1 text-muted">|</span><input type="number" className="form-control text-center px-1 bg-light" placeholder="g" value={item.wastage_weight} onChange={e => updateCartItem(i, 'wastage_weight', e.target.value)} /></div></td>
                       <td><input type="number" className="form-control form-control-sm text-center p-1" value={item.making_charges} onChange={e => updateCartItem(i, 'making_charges', e.target.value)} /></td>
