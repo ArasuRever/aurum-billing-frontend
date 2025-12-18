@@ -39,6 +39,10 @@ export const api = {
   updateShop: (id, data) => axios.put(`${API_URL}/shops/${id}`, data),
   shopTransaction: (data) => axios.post(`${API_URL}/shops/transaction`, data),
   deleteShopTransaction: (id) => axios.delete(`${API_URL}/shops/transaction/${id}`),
+  settleShopTransaction: (id) => axios.post(`${API_URL}/shops/settle`, { transaction_id: id }),
+  settleShopItem: (data) => axios.post(`${API_URL}/shops/settle-item`, data),
+  getShopTransactionHistory: (id) => axios.get(`${API_URL}/shops/payment-history/${id}`),
+  updateShopTransaction: (id, data) => axios.put(`${API_URL}/shops/transaction/${id}`, data),
 
   // --- CUSTOMERS ---
   searchCustomer: (query) => axios.get(`${API_URL}/customers/search?q=${query}`),
