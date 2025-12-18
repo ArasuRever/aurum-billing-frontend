@@ -131,7 +131,6 @@ function ShopDetails() {
     const w = parseFloat(field==='wastage'?value:newState.wastage)||0;
     const rate = parseFloat(field==='mc_rate'?value:newState.mc_rate)||0;
     const manCash = parseFloat(field==='manual_cash'?value:newState.manual_cash)||0;
-    // Always Multiply (Touch) logic for edits to keep consistent
     newState.pure = (g * (w / 100)).toFixed(3); 
     newState.mc_total = (g * rate).toFixed(2);
     newState.total_cash = (parseFloat(newState.mc_total) + manCash).toFixed(2);
@@ -159,6 +158,38 @@ function ShopDetails() {
 
   if (!shop) return <div>Loading...</div>;
 
+  // --- DYNAMIC TALLY HELPER ---
+  const renderTallyCard = (label, value, unit) => {
+      const val = parseFloat(value) || 0;
+      let statusColor = 'text-muted';
+      let statusText = 'Settled';
+      let displayVal = '0';
+      let borderClass = 'border-secondary';
+
+      if (val > 0) {
+          statusColor = 'text-danger';
+          statusText = 'We Owe';
+          displayVal = val;
+          borderClass = 'border-danger';
+      } else if (val < 0) {
+          statusColor = 'text-success';
+          statusText = 'They Owe';
+          displayVal = Math.abs(val);
+          borderClass = 'border-success';
+      }
+
+      return (
+          <div className="col-md-4">
+              <div className={`card p-3 shadow-sm ${borderClass}`} style={{borderWidth: '1px', borderLeftWidth: '5px'}}>
+                  <small className="text-muted fw-bold text-uppercase">{label}</small>
+                  <h4 className={`fw-bold mb-0 ${statusColor}`}>
+                      {statusText} {unit === '₹' ? unit : ''}{displayVal}{unit !== '₹' ? unit : ''}
+                  </h4>
+              </div>
+          </div>
+      );
+  };
+
   const borrowList = transactions.filter(t => t.type === 'BORROW_ADD');
   const lendList = transactions.filter(t => t.type === 'LEND_ADD');
 
@@ -169,10 +200,11 @@ function ShopDetails() {
         <h3 className="fw-bold">{shop.shop_name} ({shop.person_name})</h3>
       </div>
 
+      {/* --- DYNAMIC NET TALLY --- */}
       <div className="row text-center mb-4 g-3">
-         <div className="col-md-4"><div className="card p-3 border-danger shadow-sm"><small className="text-muted">Total Gold Debt</small><h4 className="text-danger fw-bold">{shop.balance_gold} g</h4></div></div>
-         <div className="col-md-4"><div className="card p-3 border-secondary shadow-sm"><small className="text-muted">Total Silver Debt</small><h4 className="text-secondary fw-bold">{shop.balance_silver} g</h4></div></div>
-         <div className="col-md-4"><div className="card p-3 border-success shadow-sm"><small className="text-muted">Total Cash Debt</small><h4 className="text-success fw-bold">₹{shop.balance_cash}</h4></div></div>
+         {renderTallyCard('Net Gold', shop.balance_gold, 'g')}
+         {renderTallyCard('Net Silver', shop.balance_silver, 'g')}
+         {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
       <div className="row g-4">
@@ -239,6 +271,7 @@ function ShopDetails() {
         </div>
       </div>
 
+      {/* --- HISTORY SECTION --- */}
       <div className="card mt-4 shadow-sm">
         <div className="card-header bg-dark text-white fw-bold">Transaction History (Combined)</div>
         <div className="table-responsive" style={{maxHeight:'400px'}}>
@@ -264,6 +297,7 @@ function ShopDetails() {
         </div>
       </div>
 
+      {/* [MODALS START HERE] */}
       {activeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-xl">
