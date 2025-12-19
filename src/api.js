@@ -29,6 +29,9 @@ export const api = {
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
   deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`),
   
+  // NEW: Sales History
+  getBillHistory: (search) => axios.get(`${API_URL}/billing/history`, { params: { search } }),
+
   // NEW: Balance Payments
   addBalancePayment: (data) => axios.post(`${API_URL}/billing/add-payment`, data),
 

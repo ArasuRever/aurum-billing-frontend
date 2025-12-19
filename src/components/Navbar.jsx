@@ -64,6 +64,13 @@ function Navbar() {
                 <i className="bi bi-receipt me-1"></i> Billing
               </Link>
             </li>
+
+            {/* HISTORY (NEW) */}
+            <li className="nav-item">
+              <Link className={`nav-link ${isActive('/bill-history')}`} to="/bill-history">
+                <i className="bi bi-clock-history me-1"></i> History
+              </Link>
+            </li>
             
           </ul>
         </div>

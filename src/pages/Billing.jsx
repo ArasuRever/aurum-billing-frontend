@@ -46,8 +46,9 @@ function Billing() {
   const [shops, setShops] = useState([]); 
   const [includeGST, setIncludeGST] = useState(false);
   
-  // --- PAYMENT STATE ---
-  const [paidAmount, setPaidAmount] = useState(''); 
+  // --- PAYMENT STATE (NEW) ---
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentSplit, setPaymentSplit] = useState({ cash: '', online: '' });
 
   // --- PRINT / INVOICE STATE ---
   const [showInvoice, setShowInvoice] = useState(false);
@@ -207,6 +208,7 @@ function Billing() {
   };
   const removeExchangeItem = (index) => setExchangeItems(exchangeItems.filter((_, i) => i !== index));
 
+  // --- CALCULATIONS ---
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -226,16 +228,26 @@ function Billing() {
   const netPayable = Math.round(netPayableRaw / 10) * 10;
   const roundOff = netPayable - netPayableRaw;
 
-  const cashReceived = paidAmount === '' ? netPayable : parseFloat(paidAmount);
-  const balancePending = netPayable - cashReceived;
-
-  const handleSaveAndPrint = async () => {
+  // --- PAYMENT LOGIC START ---
+  const handleCheckoutClick = () => {
     if (cart.length === 0) return alert("Cart is empty");
     if (!selectedCustomer) return alert("Please select a Customer first");
+    
+    // Set default split: All cash, 0 online
+    setPaymentSplit({ cash: netPayable, online: 0 });
+    setShowPaymentModal(true);
+  };
 
-    if (balancePending > 0) {
-        const confirmMsg = `⚠️ PARTIAL PAYMENT DETECTED\n\nTotal Payable: ₹${netPayable.toLocaleString()}\nCash Received: ₹${cashReceived.toLocaleString()}\nBalance Pending: ₹${balancePending.toLocaleString()}\n\nProceed to save debt for ${selectedCustomer.name}?`;
-        if (!window.confirm(confirmMsg)) return;
+  const handleFinalConfirm = async () => {
+    const cash = parseFloat(paymentSplit.cash || 0);
+    const online = parseFloat(paymentSplit.online || 0);
+    const totalPaid = cash + online;
+    const balance = netPayable - totalPaid;
+
+    // Optional: Warn if paid more than bill
+    if (balance < 0) return alert("Paid amount cannot exceed Bill Total!");
+    if (balance > 0) {
+        if(!window.confirm(`Payment is Partial.\nPending Amount: ${balance}\nProceed?`)) return;
     }
 
     const billData = {
@@ -243,7 +255,7 @@ function Billing() {
       items: cart.map(item => ({
         item_id: item.item_id, 
         item_name: item.item_desc ? `${item.item_name} (${item.item_desc})` : item.item_name,
-        metal_type: item.metal_type, // <--- IMPORTANT: Sends Metal Type
+        metal_type: item.metal_type,
         gross_weight: item.gross_weight, 
         rate: item.rate, 
         making_charges: item.making_charges,
@@ -255,9 +267,10 @@ function Billing() {
       totals: { 
           grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, 
           exchangeTotal, roundOff, netPayable,
-          paidAmount: cashReceived,
-          balance: balancePending
+          paidAmount: totalPaid,
+          balance: balance
       },
+      paymentDetails: { cash, online }, // <--- SEND SPLIT DATA
       includeGST
     };
 
@@ -265,7 +278,8 @@ function Billing() {
       const res = await api.createBill(billData);
       setLastBill({ invoice_id: res.data.invoice_id, date: new Date().toLocaleString(), ...billData });
       setShowInvoice(true);
-      setCart([]); setExchangeItems([]); clearCustomer(); setPaidAmount('');
+      setShowPaymentModal(false);
+      setCart([]); setExchangeItems([]); clearCustomer(); setPaymentSplit({cash:'', online:''});
     } catch (err) { alert(`Error: ${err.response?.data?.error || err.message}`); }
   };
 
@@ -421,31 +435,67 @@ function Billing() {
                         <div className="text-center mb-3 p-3 bg-light rounded border">
                             <small className="text-muted text-uppercase d-block mb-1">Net Payable</small>
                             <h2 className="text-success fw-bold display-6 mb-0">₹{netPayable.toLocaleString()}</h2>
-                            {roundOff !== 0 && <small className="text-muted fst-italic d-block mt-1" style={{fontSize: '0.7rem'}}>Round off: {roundOff.toFixed(2)}</small>}
-                        </div>
-
-                        <div className="mb-3">
-                            <label className="small fw-bold text-muted">Cash Received</label>
-                            <div className="input-group">
-                                <span className="input-group-text bg-white fw-bold text-success">₹</span>
-                                <input 
-                                    type="number" 
-                                    className="form-control fw-bold fs-5 text-end" 
-                                    placeholder={netPayable} // Shows full amount as hint
-                                    value={paidAmount} 
-                                    onChange={e => setPaidAmount(e.target.value)} 
-                                />
-                            </div>
-                            {balancePending > 0 && (<div className="text-end text-danger fw-bold mt-1 small">Balance Pending: ₹{balancePending.toLocaleString()}</div>)}
                         </div>
 
                         <div className="form-check form-switch mb-3 text-center"><input className="form-check-input float-none me-2" type="checkbox" id="gstSwitch" checked={includeGST} onChange={e => setIncludeGST(e.target.checked)} /><label className="form-check-label small fw-bold" htmlFor="gstSwitch">Include GST Bill</label></div>
-                        <button className="btn btn-success w-100 py-3 fw-bold shadow-sm" onClick={handleSaveAndPrint}><i className="bi bi-printer-fill me-2"></i> SAVE & PRINT</button>
+                        
+                        {/* CHANGED BUTTON */}
+                        <button className="btn btn-success w-100 py-3 fw-bold shadow-sm" onClick={handleCheckoutClick}>
+                            <i className="bi bi-cart-check-fill me-2"></i> CHECKOUT / PAYMENT
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
       </div>
+
+      {/* --- PAYMENT MODAL (NEW) --- */}
+      {showPaymentModal && (
+        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1060}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-success text-white">
+                <h5 className="modal-title">Confirm Payment</h5>
+                <button className="btn-close btn-close-white" onClick={() => setShowPaymentModal(false)}></button>
+              </div>
+              <div className="modal-body">
+                <h2 className="text-center text-primary fw-bold mb-4">Total: ₹{netPayable.toLocaleString()}</h2>
+                
+                <div className="mb-3">
+                    <label className="fw-bold text-muted">Cash Payment</label>
+                    <div className="input-group">
+                        <span className="input-group-text">₹</span>
+                        <input type="number" className="form-control fw-bold fs-5" 
+                            value={paymentSplit.cash} 
+                            onChange={e => setPaymentSplit({...paymentSplit, cash: e.target.value})} 
+                        />
+                    </div>
+                </div>
+
+                <div className="mb-3">
+                    <label className="fw-bold text-muted">Online / UPI / Card</label>
+                    <div className="input-group">
+                        <span className="input-group-text">₹</span>
+                        <input type="number" className="form-control fw-bold fs-5" 
+                            value={paymentSplit.online} 
+                            onChange={e => setPaymentSplit({...paymentSplit, online: e.target.value})} 
+                        />
+                    </div>
+                </div>
+
+                <div className="alert alert-secondary text-center mb-0">
+                    Pending Balance: <strong>₹{(netPayable - (parseFloat(paymentSplit.cash||0) + parseFloat(paymentSplit.online||0))).toLocaleString()}</strong>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-primary w-100 fw-bold py-2" onClick={handleFinalConfirm}>
+                    CONFIRM SALE & PRINT
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCustomerModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>

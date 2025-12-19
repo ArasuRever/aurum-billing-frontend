@@ -7,13 +7,14 @@ import VendorManager from './pages/VendorManager';
 import VendorDetails from './pages/VendorDetails';
 import InventoryManager from './pages/InventoryManager'; 
 import Billing from './pages/Billing';
-
-// NEW IMPORTS FOR SHOP LEDGER
 import ShopManager from './pages/ShopManager';
 import ShopDetails from './pages/ShopDetails';
-
 import CustomerManager from './pages/CustomerManager';
 import CustomerDetails from './pages/CustomerDetails';
+
+// --- NEW IMPORTS ---
+import BillHistory from './pages/BillHistory';
+import SalesReturn from './pages/SalesReturn';
 
 function App() {
   return (
@@ -22,24 +23,19 @@ function App() {
         <Navbar />
         <div className="container-fluid px-4">
           <Routes>
-            {/* VENDORS */}
             <Route path="/" element={<VendorManager />} />
             <Route path="/vendors/:id" element={<VendorDetails />} />
-            
-            {/* NEW: SHOP LEDGER (B2B) */}
             <Route path="/shops" element={<ShopManager />} />
             <Route path="/shops/:id" element={<ShopDetails />} />
-
-            {/* INVENTORY */}
             <Route path="/inventory" element={<InventoryManager />} />
-
             <Route path="/customers" element={<CustomerManager />} />
             <Route path="/customers/:phone" element={<CustomerDetails />} />
             
-            {/* BILLING */}
+            {/* BILLING SECTION */}
             <Route path="/billing" element={<Billing />} />
+            <Route path="/bill-history" element={<BillHistory />} /> {/* NEW */}
+            <Route path="/billing/return" element={<SalesReturn />} /> {/* NEW */}
             
-            {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
