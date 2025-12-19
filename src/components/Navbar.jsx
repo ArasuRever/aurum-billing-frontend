@@ -7,11 +7,8 @@ function Navbar() {
   const isActive = (path) => location.pathname === path ? 'active fw-bold' : '';
 
   return (
-    // Changed bg-dark to bg-primary (Blue) for a professional look
     <nav className="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
       <div className="container-fluid px-4"> 
-        {/* Changed container to container-fluid for wider reach */}
-        
         {/* Brand */}
         <Link className="navbar-brand d-flex align-items-center" to="/">
           <i className="bi bi-gem me-2"></i>
@@ -38,7 +35,7 @@ function Navbar() {
               </Link>
             </li>
 
-            {/* NEW: SHOP LEDGER (B2B) */}
+            {/* SHOP LEDGER (B2B) */}
             <li className="nav-item">
               <Link className={`nav-link ${isActive('/shops')}`} to="/shops">
                 <i className="bi bi-shop me-1"></i> Shop Ledger
@@ -61,11 +58,11 @@ function Navbar() {
             {/* BILLING */}
             <li className="nav-item">
               <Link className={`nav-link ${isActive('/billing')}`} to="/billing">
-                <i className="bi bi-receipt me-1"></i> Billing
+                <i className="bi bi-receipt me-1"></i> New Bill
               </Link>
             </li>
 
-            {/* HISTORY (NEW) */}
+            {/* HISTORY (NEW LINK ADDED HERE) */}
             <li className="nav-item">
               <Link className={`nav-link ${isActive('/bill-history')}`} to="/bill-history">
                 <i className="bi bi-clock-history me-1"></i> History
