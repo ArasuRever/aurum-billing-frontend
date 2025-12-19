@@ -55,6 +55,12 @@ function Navbar() {
               </Link>
             </li>
 
+            <li className="nav-item">
+              <Link className={`nav-link ${isActive('/settings')}`} to="/settings">
+                <i className="bi bi-gear me-1"></i> Settings
+              </Link>
+            </li>
+
             {/* BILLING */}
             <li className="nav-item">
               <Link className={`nav-link ${isActive('/billing')}`} to="/billing">

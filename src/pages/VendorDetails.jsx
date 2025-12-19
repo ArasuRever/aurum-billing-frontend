@@ -11,7 +11,9 @@ function VendorDetails() {
   const [items, setItems] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [agents, setAgents] = useState([]);
-  const [itemSuggestions, setItemSuggestions] = useState([]);
+  
+  // --- NEW: Master Items for Auto-Complete ---
+  const [masterItems, setMasterItems] = useState([]); 
 
   // UI Modes
   const [viewMode, setViewMode] = useState('overview'); 
@@ -42,13 +44,20 @@ function VendorDetails() {
       
       const itemRes = await api.getVendorInventory(id);
       setItems(itemRes.data);
-      setItemSuggestions([...new Set(itemRes.data.map(i => i.item_name))]);
 
       const transRes = await api.getVendorTransactions(id);
-      setTransactions(transRes.data || []); // Ensure array
+      setTransactions(transRes.data || []); 
 
       const agentRes = await api.getVendorAgents(id);
       setAgents(agentRes.data || []);
+
+      // --- FETCH MASTER SETTINGS ---
+      try {
+        const masterRes = await api.getMasterItems();
+        setMasterItems(masterRes.data);
+      } catch (e) {
+        console.warn("Settings API not linked yet", e);
+      }
 
     } catch (err) { console.error("Error loading data", err); }
   };
@@ -94,7 +103,6 @@ function VendorDetails() {
 
   // --- STOCK ACTIONS ---
   
-  // Helper to determine default metal
   const getDefaultMetal = () => {
     if (!vendor) return 'GOLD';
     if (vendor.vendor_type === 'SILVER') return 'SILVER';
@@ -131,16 +139,51 @@ function VendorDetails() {
 
   const removeRow = (i) => setStockRows(stockRows.filter((_, idx) => idx !== i));
 
+  // --- INTELLIGENT ROW CHANGE HANDLER ---
   const handleRowChange = (index, field, value) => {
     const copy = [...stockRows];
     copy[index][field] = value;
+
+    // 1. Live Pure Weight Calculation
+    let gross = parseFloat(copy[index].gross_weight) || 0;
+    let wastage = parseFloat(copy[index].wastage_percent) || 0;
+    
+    // Update Pure if weight/wastage changes
     if (field === 'gross_weight' || field === 'wastage_percent') {
-      const gross = parseFloat(field === 'gross_weight' ? value : copy[index].gross_weight) || 0;
-      const pct = parseFloat(field === 'wastage_percent' ? value : copy[index].wastage_percent) || 0;
-      copy[index].calc_total_pure = (gross * (pct / 100)).toFixed(3);
+        // If updating weight, ensure we use the new value
+        if(field === 'gross_weight') gross = parseFloat(value) || 0;
+        if(field === 'wastage_percent') wastage = parseFloat(value) || 0;
+        
+        copy[index].calc_total_pure = (gross * (wastage / 100)).toFixed(3);
     }
+
+    // 2. Auto-Fill Logic (Master Settings)
+    const currentRow = copy[index];
+    const matchedMaster = masterItems.find(m => m.item_name === currentRow.item_name && m.metal_type === currentRow.metal_type);
+
+    if (field === 'item_name' && matchedMaster) {
+        // Auto-fill Wastage
+        copy[index].wastage_percent = matchedMaster.default_wastage;
+        // Recalculate Pure immediately after auto-fill
+        wastage = parseFloat(matchedMaster.default_wastage);
+        copy[index].calc_total_pure = (gross * (wastage / 100)).toFixed(3);
+
+        // Auto-fill Making Charges
+        if (matchedMaster.mc_type === 'FIXED') {
+            copy[index].making_charges = matchedMaster.mc_value;
+        } else if (matchedMaster.mc_type === 'PER_GRAM' && gross > 0) {
+            copy[index].making_charges = (gross * parseFloat(matchedMaster.mc_value)).toFixed(2);
+        }
+    }
+
+    // 3. Auto-Calc Making Charges when Weight Changes (if Per Gram)
+    if (field === 'gross_weight' && matchedMaster && matchedMaster.mc_type === 'PER_GRAM') {
+        copy[index].making_charges = (parseFloat(value) * parseFloat(matchedMaster.mc_value)).toFixed(2);
+    }
+
     setStockRows(copy);
   };
+
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
 
   const batchTotalPure = stockRows.reduce((sum, row) => sum + (parseFloat(row.calc_total_pure) || 0), 0).toFixed(3);
@@ -249,7 +292,16 @@ function VendorDetails() {
                             {showSilverOption() && <option value="SILVER">SILVER</option>}
                         </select>
                     </td>
-                    <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{itemSuggestions.map((n, idx) => <option key={idx} value={n} />)}</datalist></td>
+                    <td>
+                        {/* AUTO-SUGGEST LIST LINKED TO MASTER SETTINGS */}
+                        <input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} />
+                        <datalist id={`suggestions-${i}`}>
+                            {masterItems
+                                .filter(m => m.metal_type === row.metal_type) // Filter by row's metal
+                                .map((m, idx) => <option key={idx} value={m.item_name} />)
+                            }
+                        </datalist>
+                    </td>
                     <td><input type="file" className="form-control form-control-sm" accept="image/*" capture="environment" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
                     
                     <td>

@@ -1,9 +1,31 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axios from 'axios'; 
+import { api } from '../api'; 
 import InvoiceTemplate from '../components/InvoiceTemplate';
 
-// --- PRINT STYLES ---
+// --- STYLES ---
+const styles = {
+  stickySidebar: {
+    position: 'sticky',
+    top: '20px',
+    zIndex: 100
+  },
+  inputClean: {
+    border: '1px solid #dee2e6',
+    borderRadius: '4px',
+    padding: '4px 8px',
+    width: '100%'
+  },
+  cardHeader: {
+    borderBottom: 'none',
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
+  }
+};
+
+// Print CSS
 const printStyles = `
   @media print {
     body * { visibility: hidden; }
@@ -23,13 +45,13 @@ function SalesReturn() {
   const [saleItems, setSaleItems] = useState([]);
   const [returnSelection, setReturnSelection] = useState({}); 
   const [shops, setShops] = useState([]); 
-  const [rates, setRates] = useState({ GOLD: 7000, SILVER: 85 });
+  const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 }); // Init 0 to force load
 
   // --- NEW ITEM ENTRY STATE ---
   const [newCart, setNewCart] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   
-  // The Input Form
+  // Input Form
   const [entry, setEntry] = useState({
     item_id: null, 
     item_name: '', 
@@ -39,58 +61,66 @@ function SalesReturn() {
     gross_weight: '', 
     wastage_percent: '', 
     making_charges: '', 
+    discount: '', 
     item_image: null,
     neighbour_id: null 
   });
 
   const [detectedShopName, setDetectedShopName] = useState(''); 
+  const [liveEntryTotal, setLiveEntryTotal] = useState(0);
 
   // --- PRINT STATE ---
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastBill, setLastBill] = useState(null);
 
+  // --- INITIALIZATION ---
   useEffect(() => {
     const styleSheet = document.createElement("style");
     styleSheet.innerText = printStyles;
     document.head.appendChild(styleSheet);
 
-    if (saleId) fetchSaleDetails(saleId);
-    fetchShops(); 
+    // 1. Fetch Shops
+    api.getShops().then(res => setShops(res.data)).catch(console.error);
+
+    // 2. Fetch Daily Rates (NEW)
+    api.getDailyRates().then(res => {
+        if(res.data && (res.data.GOLD || res.data.SILVER)) {
+            setRates(prev => ({ ...prev, ...res.data }));
+        }
+    }).catch(console.error);
+
+    if (saleId) {
+        const fetchUrl = `http://localhost:5000/api/billing/invoice/${saleId}`;
+        axios.get(fetchUrl).then(res => {
+            setSale(res.data.sale);
+            setSaleItems(res.data.items);
+        }).catch(err => {
+            alert("Invoice not found");
+            navigate('/bill-history');
+        });
+    }
 
     return () => document.head.removeChild(styleSheet);
   }, [saleId]);
 
-  const fetchSaleDetails = async (id) => {
-    try {
-      const res = await axios.get(`http://localhost:5000/api/billing/invoice/${id}`);
-      setSale(res.data.sale);
-      setSaleItems(res.data.items);
-    } catch (err) { 
-        alert("Invoice not found"); 
-        navigate('/bill-history'); 
-    }
-  };
-
-  const fetchShops = async () => {
-      try {
-          const res = await axios.get('http://localhost:5000/api/shops');
-          setShops(res.data);
-      } catch (err) { console.error("Error fetching shops", err); }
-  };
+  // --- LIVE TOTAL CALC ---
+  useEffect(() => {
+    setLiveEntryTotal(calculateLineTotal(entry));
+  }, [entry, rates]);
 
   // --- RETURN LOGIC ---
   const toggleReturn = (itemId) => {
     setReturnSelection(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
 
-  // --- NEW ITEM LOGIC ---
+  // --- INPUT HANDLERS ---
   
   // 1. Search Inventory
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (entry.item_name.length > 1 && !entry.item_id) {
         try { 
-            const res = await axios.get(`http://localhost:5000/api/billing/search-item?q=${entry.item_name}`); 
+            const res = await api.searchBillingItem(entry.item_name); 
             setSearchResults(res.data); 
         } catch (err) {}
       } else { setSearchResults([]); }
@@ -98,31 +128,25 @@ function SalesReturn() {
     return () => clearTimeout(delayDebounce);
   }, [entry.item_name, entry.item_id]);
 
-  // 2. Handle Input Changes & Nick ID
+  // 2. Handle Input Changes
   const handleEntryChange = (field, value) => {
     let finalValue = value;
     let updates = { [field]: finalValue };
     
     if (field === 'item_name' && entry.item_id) { 
-        updates.item_id = null; updates.barcode = ''; 
+        updates.item_id = null; updates.barcode = ''; updates.item_image = null; updates.neighbour_id = null; 
     }
 
-    // --- FIXED NICK ID LOGIC (Auto-Fill " - ") ---
+    // Auto-fill Nick ID " - "
     if (field === 'item_desc') {
-        const inputUpper = finalValue.toUpperCase();
-        
-        // Find shop where input matches Nick ID
-        const matchedShop = shops.find(s => 
-            s.nick_id && (inputUpper === s.nick_id.toUpperCase() || inputUpper.startsWith(s.nick_id.toUpperCase() + ' '))
-        );
-        
+        const upper = finalValue.toUpperCase();
+        const matchedShop = shops.find(s => s.nick_id && (upper === s.nick_id || upper.startsWith(s.nick_id + ' ')));
+
         if (matchedShop) { 
-            updates.neighbour_id = matchedShop.id;
-            setDetectedShopName(matchedShop.shop_name); 
-            
-            // THE FIX: Automatically append " - " when Nick ID is typed completely
-            if (inputUpper === matchedShop.nick_id.toUpperCase()) {
-                updates[field] = `${matchedShop.nick_id.toUpperCase()} - `;
+            updates.neighbour_id = matchedShop.id; 
+            setDetectedShopName(matchedShop.shop_name);
+            if (upper === matchedShop.nick_id) {
+                updates[field] = `${matchedShop.nick_id} - `; 
             }
         } else {
             updates.neighbour_id = null;
@@ -132,7 +156,7 @@ function SalesReturn() {
     setEntry(prev => ({ ...prev, ...updates }));
   };
 
-  // 3. Populate Form (Values from Vendor are cleared so you can edit)
+  // 3. Populate Form
   const selectItem = (item) => { 
       setSearchResults([]); 
       setEntry({
@@ -142,17 +166,19 @@ function SalesReturn() {
           barcode: item.barcode,
           metal_type: item.metal_type,
           gross_weight: item.gross_weight,
-          wastage_percent: '', // Cleared for editing
-          making_charges: '',   // Cleared for editing
-          neighbour_id: null,
+          wastage_percent: '', 
+          making_charges: '',   
+          discount: '',
+          neighbour_id: item.neighbour_shop_id || null,
           item_desc: ''
       });
-      setDetectedShopName('');
   };
 
   // 4. Add to Cart
   const performAddToCart = () => {
     let finalName = entry.item_name;
+    if (!finalName && entry.item_desc) finalName = entry.item_desc;
+
     if (!finalName || !entry.gross_weight) return alert("Name & Weight Required");
 
     const appliedRate = entry.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
@@ -162,11 +188,12 @@ function SalesReturn() {
 
     const newItem = {
       ...entry,
+      item_name: finalName,
       id: entry.item_id || `MANUAL-${Date.now()}`,
       isManual: !entry.item_id,
       wastage_weight: wastWt,
       rate: appliedRate, 
-      total: 0 // Calc below
+      total: 0 // Calc dynamic
     };
     
     setNewCart(prev => [...prev, newItem]);
@@ -175,21 +202,34 @@ function SalesReturn() {
     setEntry({ 
         item_id: null, item_name: '', item_desc: '', barcode: '', 
         metal_type: entry.metal_type, gross_weight: '', wastage_percent: '', 
-        making_charges: '', item_image: null, neighbour_id: null 
+        making_charges: '', discount: '', 
+        item_image: null, neighbour_id: null 
     });
     setDetectedShopName('');
+  };
+
+  const updateCartItem = (index, field, value) => {
+    const updatedCart = [...newCart];
+    updatedCart[index][field] = value;
+    if (field === 'wastage_percent') {
+        const gross = parseFloat(updatedCart[index].gross_weight) || 0;
+        updatedCart[index].wastage_weight = (gross * (parseFloat(value) / 100)).toFixed(3);
+    }
+    setNewCart(updatedCart);
   };
 
   const removeFromNewCart = (index) => setNewCart(newCart.filter((_, i) => i !== index));
   const handleKeyDown = (e) => { if (e.key === 'Enter') performAddToCart(); };
 
-  // --- CALCULATIONS ---
+  // --- MATH ---
   const calculateLineTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
-    const wastageWt = parseFloat(item.wastage_weight) || 0; 
-    const rate = parseFloat(item.rate) || 0;
+    const wastPct = parseFloat(item.wastage_percent) || 0;
+    const wastageWt = (weight * (wastPct / 100));
+    const rate = item.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
     const mc = parseFloat(item.making_charges) || 0;
-    return Math.round((weight + wastageWt) * rate + mc);
+    const disc = parseFloat(item.discount) || 0; 
+    return Math.round(((weight + wastageWt) * rate) + mc - disc);
   };
 
   let totalRefund = 0;
@@ -201,7 +241,7 @@ function SalesReturn() {
 
   const netPayable = totalNewBill - totalRefund;
 
-  // --- SUBMIT TRANSACTION ---
+  // --- SUBMIT ---
   const handleSubmit = async () => {
     if(itemsToReturn.length === 0 && newCart.length === 0) return alert("Nothing to process.");
     if(!window.confirm("Confirm Transaction?")) return;
@@ -220,29 +260,31 @@ function SalesReturn() {
             id: item.item_id, 
             item_name: item.item_desc ? `${item.item_name} (${item.item_desc})` : item.item_name,
             gross_weight: item.gross_weight,
-            rate: item.rate,
+            rate: item.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD,
             total_price: calculateLineTotal(item),
             metal_type: item.metal_type,
             making_charges: item.making_charges,
             wastage_weight: item.wastage_weight,
+            discount: item.discount, 
             neighbour_id: item.neighbour_id
         }))
     };
 
     try {
-        const res = await axios.post('http://localhost:5000/api/billing/process-return', payload);
+        const res = api.processReturn 
+            ? await api.processReturn(payload)
+            : await axios.post('http://localhost:5000/api/billing/process-return', payload);
         
         if(res.data.new_invoice) {
-            // Prepare Data for InvoiceTemplate
             const invoiceData = {
                 invoice_id: res.data.new_invoice,
                 date: new Date().toLocaleString(),
                 customer: { name: sale.customer_name, phone: sale.customer_phone },
                 items: newCart.map(item => ({
                     ...item,
+                    rate: item.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD,
                     total: calculateLineTotal(item)
                 })),
-                // Map returned items to "exchangeItems" so they show in the template detail
                 exchangeItems: itemsToReturn.map(item => ({
                     name: `RETURN: ${item.item_name}`,
                     metal_type: 'N/A',
@@ -254,10 +296,10 @@ function SalesReturn() {
                 })),
                 totals: {
                     grossTotal: totalNewBill,
-                    totalDiscount: 0,
+                    totalDiscount: 0, 
                     taxableAmount: totalNewBill, 
                     sgst: 0, cgst: 0,
-                    exchangeTotal: totalRefund, // Will show as "Less Exchange" on the bill
+                    exchangeTotal: totalRefund, 
                     roundOff: 0,
                     netPayable: netPayable > 0 ? netPayable : 0,
                     paidAmount: netPayable > 0 ? netPayable : 0, 
@@ -276,151 +318,226 @@ function SalesReturn() {
     }
   };
 
-  if (!sale) return <div className="p-5 text-center">Loading...</div>;
+  if (!sale) return <div className="p-5 text-center text-muted">Loading Invoice Data...</div>;
 
   return (
-    <div className="container-fluid mt-4 pb-5">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div className="container-fluid mt-3 pb-5">
+      
+      {/* HEADER BAR */}
+      <div className="d-flex justify-content-between align-items-center mb-4 p-3 bg-white shadow-sm rounded">
         <div>
-            <h2 className="text-danger fw-bold"><i className="bi bi-arrow-left-right me-2"></i>Return & Exchange</h2>
-            <div className="text-muted">
-                Ref: <strong>{sale.invoice_number}</strong> | Customer: <strong>{sale.customer_name}</strong>
+            <h4 className="mb-0 fw-bold text-dark"><i className="bi bi-arrow-left-right text-primary me-2"></i>Return & Exchange</h4>
+            <div className="text-muted small">
+                Invoice: <span className="fw-bold text-dark">{sale.invoice_number}</span> | 
+                Customer: <span className="fw-bold text-dark">{sale.customer_name}</span>
             </div>
         </div>
-        <button className="btn btn-secondary" onClick={() => navigate('/bill-history')}>Back</button>
+        <button className="btn btn-outline-secondary btn-sm fw-bold" onClick={() => navigate('/bill-history')}>
+            <i className="bi bi-arrow-left me-1"></i> Back
+        </button>
       </div>
 
       <div className="row g-4">
-        {/* RETURN SECTION */}
-        <div className="col-12">
-          <div className="card shadow-sm border-danger">
-            <div className="card-header bg-danger text-white d-flex justify-content-between">
-              <h5 className="mb-0">Select Items to Return</h5>
-              <h5 className="mb-0">Credit: ₹{totalRefund.toLocaleString()}</h5>
+        
+        {/* === LEFT COLUMN: MAIN TASKS (75%) === */}
+        <div className="col-lg-9">
+          
+          {/* 1. RETURN SECTION */}
+          <div className="card shadow-sm border-0 mb-4">
+            <div className="card-header bg-danger bg-opacity-10 text-danger d-flex justify-content-between align-items-center" style={styles.cardHeader}>
+              <span><i className="bi bi-arrow-return-left me-2"></i>Select Items to Return</span>
+              <span className="badge bg-danger">Credit: ₹{totalRefund.toLocaleString()}</span>
             </div>
-            <div className="card-body p-0">
-                <table className="table table-hover mb-0 align-middle">
-                    <thead className="table-light"><tr><th width="50"></th><th>Item</th><th>Wt</th><th>Rate</th><th className="text-end">Amount</th></tr></thead>
+            <div className="table-responsive">
+                <table className="table table-hover align-middle mb-0">
+                    <thead className="table-light text-secondary small text-uppercase">
+                        <tr><th style={{width:'50px'}}>Select</th><th>Item Name</th><th>Sold Weight</th><th>Sold Rate</th><th className="text-end">Refund Amount</th></tr>
+                    </thead>
                     <tbody>
-                    {saleItems.map(item => (
-                        <tr key={item.id} className={item.item_name.includes('(RETURNED)') ? 'table-secondary text-muted' : ''}>
+                    {saleItems.map(item => {
+                        const isReturned = item.item_name.includes('(RETURNED)');
+                        return (
+                        <tr key={item.id} className={isReturned ? 'bg-light text-muted' : ''}>
                             <td className="text-center">
                                 <input className="form-check-input" type="checkbox" 
-                                    disabled={item.item_name.includes('(RETURNED)')}
+                                    disabled={isReturned}
                                     checked={!!returnSelection[item.id]} 
                                     onChange={() => toggleReturn(item.id)} 
-                                    style={{transform: 'scale(1.2)'}} />
+                                    style={{cursor: 'pointer', transform: 'scale(1.2)'}} />
                             </td>
-                            <td>{item.item_name}</td>
-                            <td>{item.sold_weight} g</td>
-                            <td>{item.sold_rate}</td>
-                            <td className="text-end fw-bold">₹{parseFloat(item.total_item_price).toLocaleString()}</td>
+                            <td>{item.item_name} {isReturned && <span className="badge bg-secondary ms-2" style={{fontSize:'0.6rem'}}>RETURNED</span>}</td>
+                            <td className="fw-bold">{item.sold_weight} g</td>
+                            <td className="text-muted">{item.sold_rate}</td>
+                            <td className="text-end fw-bold text-danger">₹{parseFloat(item.total_item_price).toLocaleString()}</td>
                         </tr>
-                    ))}
+                        );
+                    })}
                     </tbody>
                 </table>
             </div>
           </div>
-        </div>
 
-        {/* NEW ITEMS SECTION */}
-        <div className="col-12">
-          <div className="card shadow-sm border-success">
-            <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">New Items (Exchange)</h5>
+          {/* 2. EXCHANGE SECTION */}
+          <div className="card shadow-sm border-0">
+            <div className="card-header bg-success bg-opacity-10 text-success d-flex justify-content-between align-items-center" style={styles.cardHeader}>
+              <span><i className="bi bi-cart-plus me-2"></i>Add New Items (Exchange)</span>
+              
+              {/* RATES CONFIG */}
               <div className="d-flex gap-2">
-                <div className="input-group input-group-sm" style={{width:'120px'}}><span className="input-group-text bg-warning border-warning text-dark fw-bold">Au</span><input type="number" className="form-control fw-bold" value={rates.GOLD} onChange={e => setRates({...rates, GOLD: e.target.value})} /></div>
-                <div className="input-group input-group-sm" style={{width:'120px'}}><span className="input-group-text bg-secondary border-secondary text-white fw-bold">Ag</span><input type="number" className="form-control fw-bold" value={rates.SILVER} onChange={e => setRates({...rates, SILVER: e.target.value})} /></div>
+                <div className="input-group input-group-sm" style={{width:'130px'}}>
+                    <span className="input-group-text bg-white fw-bold text-warning border-warning">Au</span>
+                    <input type="number" className="form-control fw-bold border-warning text-end" value={rates.GOLD} onChange={e => setRates({...rates, GOLD: e.target.value})} />
+                </div>
+                <div className="input-group input-group-sm" style={{width:'130px'}}>
+                    <span className="input-group-text bg-white fw-bold text-secondary border-secondary">Ag</span>
+                    <input type="number" className="form-control fw-bold border-secondary text-end" value={rates.SILVER} onChange={e => setRates({...rates, SILVER: e.target.value})} />
+                </div>
               </div>
             </div>
 
-            <div className="card-body">
-                {/* INPUT FORM */}
-                <div className="row g-2 align-items-end mb-3 pb-3 border-bottom">
-                    <div className="col-md-3 position-relative">
-                        <label className="small fw-bold text-muted">Search / Item Name</label>
-                        <input className="form-control fw-bold" placeholder="Scan or Type..." value={entry.item_name} onChange={e => handleEntryChange('item_name', e.target.value)} />
-                        {searchResults.length > 0 && (
-                            <div className="position-absolute w-100 shadow bg-white rounded overflow-auto" style={{zIndex: 1000, maxHeight:'200px', top: '100%'}}>
-                                {searchResults.map(item => (
-                                    <button key={item.id} className="list-group-item list-group-item-action p-2 small" onClick={() => selectItem(item)}>
-                                        <div className="fw-bold">{item.item_name}</div>
-                                        <div className="text-muted d-flex justify-content-between"><span>{item.barcode}</span><span>{item.gross_weight}g</span></div>
-                                    </button>
-                                ))}
+            <div className="card-body bg-light bg-opacity-25">
+                
+                {/* --- SPACIOUS INPUT FORM (2 ROWS) --- */}
+                <div className="card border-0 shadow-sm mb-4">
+                    <div className="card-body p-3">
+                        {/* Row 1: Identity */}
+                        <div className="row g-3 mb-3">
+                            <div className="col-md-5 position-relative">
+                                <label className="form-label small fw-bold text-muted mb-1">Search Inventory</label>
+                                <div className="input-group">
+                                    <span className="input-group-text bg-white border-end-0"><i className="bi bi-search"></i></span>
+                                    <input className="form-control border-start-0" placeholder="Scan or Type Item..." value={entry.item_name} onChange={e => handleEntryChange('item_name', e.target.value)} autoFocus />
+                                </div>
+                                {searchResults.length > 0 && (
+                                    <div className="position-absolute w-100 shadow bg-white rounded overflow-auto border" style={{zIndex: 1000, maxHeight:'250px', top: '100%'}}>
+                                        {searchResults.map(item => (
+                                            <button key={item.id} className="list-group-item list-group-item-action p-2 small border-0 border-bottom" onClick={() => selectItem(item)}>
+                                                <div className="fw-bold text-dark">{item.item_name}</div>
+                                                <div className="d-flex justify-content-between text-muted" style={{fontSize:'0.75rem'}}><span>{item.barcode}</span><span>{item.gross_weight}g</span></div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                    <div className="col-md-1">
-                        <label className="small fw-bold text-muted">Metal</label>
-                        <select className="form-select fw-bold" value={entry.metal_type} onChange={e => handleEntryChange('metal_type', e.target.value)}><option>GOLD</option><option>SILVER</option></select>
-                    </div>
-                    <div className="col-md-2">
-                        <label className="small fw-bold text-muted">NickID</label>
-                        <div className="input-group">
-                            <input className="form-control" placeholder="e.g. RJ" value={entry.item_desc} onChange={e => handleEntryChange('item_desc', e.target.value)} onKeyDown={handleKeyDown} />
-                            {detectedShopName && <span className="input-group-text bg-warning text-dark px-2" title={detectedShopName}>✓</span>}
+                            <div className="col-md-4">
+                                <label className="form-label small fw-bold text-muted mb-1">Nick ID / Desc</label>
+                                <div className="input-group">
+                                    <input className="form-control" placeholder="e.g. RJ" value={entry.item_desc} onChange={e => handleEntryChange('item_desc', e.target.value)} onKeyDown={handleKeyDown} />
+                                    {detectedShopName && <span className="input-group-text bg-warning text-dark px-2 border-warning" style={{fontSize:'0.7rem'}}>{detectedShopName}</span>}
+                                </div>
+                            </div>
+                            <div className="col-md-3">
+                                <label className="form-label small fw-bold text-muted mb-1">Metal Type</label>
+                                <select className="form-select fw-bold" value={entry.metal_type} onChange={e => handleEntryChange('metal_type', e.target.value)}>
+                                    <option value="GOLD">GOLD (Au)</option>
+                                    <option value="SILVER">SILVER (Ag)</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    <div className="col-md-2">
-                        <label className="small fw-bold text-muted">Weight</label>
-                        <input type="number" className="form-control" placeholder="0.000" value={entry.gross_weight} onChange={e => handleEntryChange('gross_weight', e.target.value)} onKeyDown={handleKeyDown} />
-                    </div>
-                    <div className="col-md-1">
-                        <label className="small fw-bold text-muted">Wst%</label>
-                        <input type="number" className="form-control" placeholder="0" value={entry.wastage_percent} onChange={e => handleEntryChange('wastage_percent', e.target.value)} onKeyDown={handleKeyDown} />
-                    </div>
-                    <div className="col-md-2">
-                        <label className="small fw-bold text-muted">MC (₹)</label>
-                        <input type="number" className="form-control" placeholder="0" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} />
-                    </div>
-                    <div className="col-md-1">
-                        <button className="btn btn-primary w-100 fw-bold" onClick={performAddToCart}>ADD</button>
+
+                        {/* Row 2: Financials */}
+                        <div className="row g-2 align-items-end">
+                            <div className="col-md-2">
+                                <label className="form-label small fw-bold text-muted mb-1">Weight (g)</label>
+                                <input type="number" className="form-control fw-bold" placeholder="0.000" value={entry.gross_weight} onChange={e => handleEntryChange('gross_weight', e.target.value)} onKeyDown={handleKeyDown} />
+                            </div>
+                            <div className="col-md-2">
+                                <label className="form-label small fw-bold text-muted mb-1">Wastage %</label>
+                                <input type="number" className="form-control" placeholder="0" value={entry.wastage_percent} onChange={e => handleEntryChange('wastage_percent', e.target.value)} onKeyDown={handleKeyDown} />
+                            </div>
+                            <div className="col-md-2">
+                                <label className="form-label small fw-bold text-muted mb-1">MC (₹)</label>
+                                <input type="number" className="form-control" placeholder="0" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} />
+                            </div>
+                            <div className="col-md-2">
+                                <label className="form-label small fw-bold text-danger mb-1">Discount</label>
+                                <input type="number" className="form-control text-danger border-danger" placeholder="0" value={entry.discount} onChange={e => handleEntryChange('discount', e.target.value)} onKeyDown={handleKeyDown} />
+                            </div>
+                            <div className="col-md-2 text-end px-3">
+                                <div className="small text-muted text-uppercase mb-1">Est. Total</div>
+                                <div className="fw-bold text-success fs-5">₹{liveEntryTotal.toLocaleString()}</div>
+                            </div>
+                            <div className="col-md-2">
+                                <button className="btn btn-success w-100 fw-bold" onClick={performAddToCart} style={{height: '38px'}}>+ ADD</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {/* TABLE */}
-                <table className="table table-bordered table-striped align-middle text-center mb-0">
-                    <thead className="table-light small"><tr><th>Item</th><th>Weight</th><th>Wastage</th><th>MC</th><th>Rate</th><th>Total</th><th>Action</th></tr></thead>
-                    <tbody>
-                        {newCart.map((item, i) => (
-                            <tr key={i}>
-                                <td className="text-start"><strong>{item.item_name}</strong> <small className="text-muted">{item.item_desc}</small> {item.neighbour_id && <span className="badge bg-warning text-dark ms-1">Neighbour</span>}</td>
-                                <td>{item.gross_weight}</td>
-                                <td>{item.wastage_percent}%</td>
-                                <td>{item.making_charges}</td>
-                                <td>{item.rate}</td>
-                                <td className="fw-bold text-success">₹{Math.round(calculateLineTotal(item)).toLocaleString()}</td>
-                                <td><button className="btn btn-sm btn-outline-danger" onClick={() => removeFromNewCart(i)}>&times;</button></td>
+                {/* --- CART TABLE --- */}
+                <div className="table-responsive bg-white rounded border">
+                    <table className="table table-bordered align-middle mb-0">
+                        <thead className="table-light small text-center text-secondary text-uppercase">
+                            <tr>
+                                <th style={{width: '30%'}}>Item Description</th>
+                                <th style={{width: '12%'}}>Weight</th>
+                                <th style={{width: '10%'}}>Wst %</th>
+                                <th style={{width: '12%'}}>MC (₹)</th>
+                                <th style={{width: '12%'}}>Disc (₹)</th>
+                                <th>Total</th>
+                                <th style={{width: '50px'}}></th>
                             </tr>
-                        ))}
-                        {newCart.length === 0 && <tr><td colSpan="7" className="text-muted py-3">No new items.</td></tr>}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {newCart.map((item, i) => (
+                                <tr key={i}>
+                                    <td className="text-start">
+                                        <div className="fw-bold text-dark">{item.item_name}</div>
+                                        <div className="small text-muted">{item.item_desc} {item.neighbour_id && <span className="badge bg-warning text-dark ms-1" style={{fontSize:'0.6em'}}>NEIGHBOUR</span>}</div>
+                                    </td>
+                                    <td>{item.gross_weight} g</td>
+                                    <td className="p-1"><input type="number" className="form-control form-control-sm text-center border-0 bg-transparent" value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} /></td>
+                                    <td className="p-1"><input type="number" className="form-control form-control-sm text-center border-0 bg-transparent" value={item.making_charges} onChange={e => updateCartItem(i, 'making_charges', e.target.value)} /></td>
+                                    <td className="p-1"><input type="number" className="form-control form-control-sm text-center border-0 bg-transparent text-danger fw-bold" value={item.discount} onChange={e => updateCartItem(i, 'discount', e.target.value)} /></td>
+                                    <td className="fw-bold text-success text-end pe-3">₹{Math.round(calculateLineTotal(item)).toLocaleString()}</td>
+                                    <td className="text-center"><button className="btn btn-link text-danger p-0" onClick={() => removeFromNewCart(i)}><i className="bi bi-trash"></i></button></td>
+                                </tr>
+                            ))}
+                            {newCart.length === 0 && <tr><td colSpan="7" className="text-center py-4 text-muted small">Cart is empty. Add items above.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
             </div>
           </div>
         </div>
 
-        {/* SUMMARY */}
-        <div className="col-12">
-            <div className="card bg-light border-primary shadow">
-                <div className="card-body">
-                    <div className="row text-center align-items-center">
-                        <div className="col-md-4"><h6 className="text-danger">Return Credit</h6><h2 className="fw-bold text-danger">- ₹{totalRefund.toLocaleString()}</h2></div>
-                        <div className="col-md-4 border-start border-end"><h6 className="text-success">New Bill Total</h6><h2 className="fw-bold text-success">+ ₹{Math.round(totalNewBill).toLocaleString()}</h2></div>
-                        <div className="col-md-4">
-                            <h6 className="text-muted">Net Payable</h6>
-                            <h1 className={`fw-bold ${netPayable > 0 ? 'text-primary' : 'text-warning'}`}>
-                                {netPayable > 0 ? `Pay: ₹${Math.round(netPayable).toLocaleString()}` : `Refund: ₹${Math.abs(Math.round(netPayable)).toLocaleString()}`}
-                            </h1>
-                        </div>
+        {/* === RIGHT COLUMN: STICKY SUMMARY (25%) === */}
+        <div className="col-lg-3">
+            <div className="card shadow border-0 text-center" style={styles.stickySidebar}>
+                <div className="card-header bg-dark text-white py-3">
+                    <h5 className="mb-0 fw-bold ls-1">SUMMARY</h5>
+                </div>
+                <div className="card-body p-4">
+                    
+                    {/* Refund */}
+                    <div className="mb-3 pb-3 border-bottom d-flex justify-content-between align-items-center">
+                        <span className="text-muted small text-uppercase">Return Credit</span>
+                        <span className="fw-bold text-danger fs-5">- ₹{totalRefund.toLocaleString()}</span>
                     </div>
-                    <div className="text-end border-top pt-3 mt-3">
-                        <button className="btn btn-lg btn-primary px-5 fw-bold" onClick={handleSubmit}><i className="bi bi-printer me-2"></i> PROCESS & PRINT</button>
+
+                    {/* New Total */}
+                    <div className="mb-4 pb-3 border-bottom d-flex justify-content-between align-items-center">
+                        <span className="text-muted small text-uppercase">New Bill Total</span>
+                        <span className="fw-bold text-success fs-5">+ ₹{Math.round(totalNewBill).toLocaleString()}</span>
                     </div>
+
+                    {/* Net Payable */}
+                    <div className="bg-light rounded p-3 mb-4 border">
+                        <small className="text-uppercase fw-bold text-secondary d-block mb-1">Net Payable</small>
+                        <h2 className={`fw-bold mb-0 ${netPayable > 0 ? 'text-primary' : 'text-warning'}`}>
+                            {netPayable > 0 ? `₹${Math.round(netPayable).toLocaleString()}` : `- ₹${Math.abs(Math.round(netPayable)).toLocaleString()}`}
+                        </h2>
+                        <small className="text-muted">{netPayable > 0 ? '(Customer Pays)' : '(Shop Refunds)'}</small>
+                    </div>
+
+                    {/* Actions */}
+                    <button className="btn btn-primary w-100 py-3 fw-bold shadow-sm" onClick={handleSubmit}>
+                        <i className="bi bi-printer-fill me-2"></i> PROCESS & PRINT
+                    </button>
                 </div>
             </div>
         </div>
+
       </div>
 
       {/* PRINT MODAL */}

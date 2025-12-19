@@ -63,4 +63,18 @@ export const api = {
   // --- RETURNS ---
   getInvoiceDetails: (invoiceId) => axios.get(`${API_URL}/billing/invoice/${invoiceId}`),
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
+  processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
+
+  // SETTINGS (Master Items)
+  getMasterItems: () => axios.get(`${API_URL}/settings/items`),
+  addMasterItem: (data) => axios.post(`${API_URL}/settings/items`, data),
+  deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
+
+  // SETTINGS (Daily Rates & Master Items)
+  getDailyRates: () => axios.get(`${API_URL}/settings/rates`),
+  updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data), // { metal_type: 'GOLD', rate: 7500 }
+  
+  getMasterItems: () => axios.get(`${API_URL}/settings/items`),
+  addMasterItem: (data) => axios.post(`${API_URL}/settings/items`, data),
+  deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
 };

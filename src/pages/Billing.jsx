@@ -13,7 +13,8 @@ const printStyles = `
 `;
 
 function Billing() {
-  const [rates, setRates] = useState({ GOLD: 7000, SILVER: 85 });
+  const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 });
+  const [masterItems, setMasterItems] = useState([]); // Store settings rules
   
   // --- CUSTOMER STATE ---
   const [customerSearch, setCustomerSearch] = useState('');
@@ -33,12 +34,15 @@ function Billing() {
     wastage_percent: '', 
     making_charges: '', 
     item_image: null,
-    neighbour_id: null 
+    neighbour_id: null,
+    // NEW: To track calculation logic
+    calc_method: 'STANDARD', // STANDARD, RATE_ADD_ON, FIXED_PRICE
+    fixed_price: 0 // Used if calc_method is FIXED_PRICE
   });
 
-  // --- EXCHANGE STATE (UPDATED) ---
+  // --- EXCHANGE STATE ---
   const [showExchangeModal, setShowExchangeModal] = useState(false);
-  const [editingExchangeIndex, setEditingExchangeIndex] = useState(null); // To edit existing items
+  const [editingExchangeIndex, setEditingExchangeIndex] = useState(null); 
   const [exchangeEntry, setExchangeEntry] = useState({
     name: '', 
     metal_type: 'GOLD', 
@@ -66,11 +70,24 @@ function Billing() {
     const styleSheet = document.createElement("style");
     styleSheet.innerText = printStyles;
     document.head.appendChild(styleSheet);
+    
+    // 1. Fetch Shops
     api.getShops().then(res => setShops(res.data)).catch(console.error);
+
+    // 2. Fetch Daily Rates
+    api.getDailyRates().then(res => {
+        if(res.data && (res.data.GOLD || res.data.SILVER)) {
+            setRates(prev => ({ ...prev, ...res.data }));
+        }
+    }).catch(console.error);
+
+    // 3. Fetch Master Items (Settings)
+    api.getMasterItems().then(res => setMasterItems(res.data)).catch(console.error);
+
     return () => document.head.removeChild(styleSheet);
   }, []);
 
-  // --- CUSTOMER SEARCH LOGIC ---
+  // --- SEARCH LOGIC ---
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (customerSearch.length > 2 && !selectedCustomer) {
@@ -80,19 +97,6 @@ function Billing() {
     return () => clearTimeout(delayDebounce);
   }, [customerSearch, selectedCustomer]);
 
-  const selectCustomer = (cust) => { setSelectedCustomer(cust); setCustomerSearch(''); setCustomerResults([]); };
-  const clearCustomer = () => { setSelectedCustomer(null); setCustomerSearch(''); };
-  const handleAddCustomer = async () => {
-    if(!newCustomer.name || !newCustomer.phone) return alert("Name and Phone required");
-    try {
-        const res = await api.addCustomer(newCustomer);
-        selectCustomer(res.data); 
-        setShowCustomerModal(false);
-        setNewCustomer({ name: '', phone: '', address: '' });
-    } catch(err) { alert(err.response?.data?.error || "Error adding customer"); }
-  };
-
-  // --- ITEM SEARCH LOGIC ---
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (entry.item_name.length > 1 && !entry.item_id) {
@@ -102,15 +106,31 @@ function Billing() {
     return () => clearTimeout(delayDebounce);
   }, [entry.item_name, entry.item_id]);
 
-  // --- CART HANDLERS ---
+  const selectCustomer = (cust) => { setSelectedCustomer(cust); setCustomerSearch(''); setCustomerResults([]); };
+  const clearCustomer = () => { setSelectedCustomer(null); setCustomerSearch(''); };
+  const handleAddCustomer = async () => {
+    if(!newCustomer.name || !newCustomer.phone) return alert("Name/Phone required");
+    try {
+        const res = await api.addCustomer(newCustomer);
+        selectCustomer(res.data); 
+        setShowCustomerModal(false);
+        setNewCustomer({ name: '', phone: '', address: '' });
+    } catch(err) { alert(err.response?.data?.error || "Error adding customer"); }
+  };
+
+  // --- CART & ENTRY HANDLERS ---
+
+  // 1. Handle Manual Input
   const handleEntryChange = (field, value) => {
     let finalValue = value;
     let updates = { [field]: finalValue };
     
+    // Reset ID if name changes manually
     if (field === 'item_name' && entry.item_id) { 
         updates.item_id = null; updates.barcode = ''; updates.item_image = null; updates.neighbour_id = null; 
     }
 
+    // Neighbor NickID Logic
     if (field === 'item_desc') {
         const upper = finalValue.toUpperCase();
         const matchedShop = shops.find(s => s.nick_id && (upper === s.nick_id || upper.startsWith(s.nick_id + ' ')));
@@ -121,142 +141,168 @@ function Billing() {
             updates.neighbour_id = null;
         }
     }
+
+    // --- AUTO-DETECT SETTINGS IF TYPING NAME ---
+    if (field === 'item_name') {
+        // Try to match typed name with Master Settings
+        const matchedRule = masterItems.find(m => m.item_name.toLowerCase() === finalValue.toLowerCase() && m.metal_type === entry.metal_type);
+        if (matchedRule) {
+            updates.calc_method = matchedRule.calc_method; // STANDARD, RATE_ADD_ON, FIXED_PRICE
+            updates.wastage_percent = matchedRule.default_wastage || '';
+            
+            // Map MC based on type
+            if (matchedRule.calc_method === 'FIXED_PRICE') {
+                updates.fixed_price = matchedRule.mc_value; // Use mc_value as the Fixed Rate
+                updates.making_charges = ''; // Clear MC display for clarity
+            } else {
+                updates.making_charges = matchedRule.mc_value || '';
+                updates.fixed_price = 0;
+            }
+        } else {
+            // Reset to Standard if no match found
+            updates.calc_method = 'STANDARD';
+        }
+    }
+
     setEntry(prev => ({ ...prev, ...updates }));
   };
 
+  // 2. Select from Search (Inventory)
+  const selectItem = (item) => { 
+      setSearchResults([]); 
+      
+      // Check for Master Rule matches
+      const matchedRule = masterItems.find(m => m.item_name === item.item_name && m.metal_type === item.metal_type);
+      
+      let method = 'STANDARD';
+      let wast = item.wastage_percent || '';
+      let mc = item.making_charges || '';
+      let fixed = 0;
+
+      if (matchedRule) {
+          method = matchedRule.calc_method;
+          // Prefer master rule wastage/mc over inventory defaults if set, or keep inventory
+          if(matchedRule.default_wastage > 0) wast = matchedRule.default_wastage;
+          
+          if(method === 'FIXED_PRICE') {
+              fixed = matchedRule.mc_value;
+              mc = '';
+          } else if (method === 'RATE_ADD_ON') {
+              mc = matchedRule.mc_value; // Use MC field as the "Add On" amount
+          } else {
+              if(matchedRule.mc_value > 0) mc = matchedRule.mc_value;
+          }
+      }
+
+      setEntry({
+          ...entry,
+          item_id: item.id,
+          item_name: item.item_name,
+          barcode: item.barcode,
+          metal_type: item.metal_type,
+          gross_weight: item.gross_weight,
+          neighbour_id: item.neighbour_shop_id || null,
+          item_desc: '',
+          // Smart Values
+          calc_method: method,
+          wastage_percent: wast,
+          making_charges: mc,
+          fixed_price: fixed
+      });
+  };
+
+  // 3. Add to Cart
   const performAddToCart = (itemToAdd) => {
     if (itemToAdd.item_id && cart.find(c => c.item_id === itemToAdd.item_id)) return alert("Item already in cart.");
-    const appliedRate = itemToAdd.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
+    
     const gross = parseFloat(itemToAdd.gross_weight) || 0;
     const wastPct = parseFloat(itemToAdd.wastage_percent) || 0;
     const wastWt = (gross * (wastPct / 100)).toFixed(3);
+
+    // Determine Rate based on Calc Method
+    let appliedRate = itemToAdd.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
+    if (itemToAdd.calc_method === 'FIXED_PRICE') {
+        appliedRate = itemToAdd.fixed_price; // Override Daily Rate
+    }
 
     const newItem = {
       ...itemToAdd,
       id: itemToAdd.item_id || `MANUAL-${Date.now()}`,
       isManual: !itemToAdd.item_id,
       wastage_weight: wastWt,
-      rate: appliedRate, 
+      rate: appliedRate, // This stores either Daily Rate or Fixed Price
       discount: '', 
       total: 0,
       neighbour_id: itemToAdd.neighbour_id 
     };
     
     setCart(prev => [...prev, newItem]);
+    
+    // Reset Form
     setEntry({ 
         item_id: null, item_name: '', item_desc: '', barcode: '', 
         metal_type: entry.metal_type, gross_weight: '', wastage_percent: '', 
-        making_charges: '', item_image: null, neighbour_id: null 
+        making_charges: '', item_image: null, neighbour_id: null,
+        calc_method: 'STANDARD', fixed_price: 0 
     });
   };
 
-  const selectItem = (item) => { setSearchResults([]); performAddToCart({ ...item, item_id: item.id, item_desc: '' }); };
   const handleManualAdd = () => {
     let finalName = entry.item_name || entry.item_desc;
     if (!finalName || !entry.gross_weight) return alert("Name & Weight Required");
     performAddToCart({ ...entry, item_name: finalName });
   };
+
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
+  
   const updateCartItem = (index, field, value) => {
     const newCart = [...cart];
     const item = newCart[index];
     const gross = parseFloat(item.gross_weight) || 0;
+    
     if (field === 'wastage_percent') {
         item.wastage_percent = value;
         item.wastage_weight = value === '' ? '' : (gross * (parseFloat(value) / 100)).toFixed(3);
-    } else if (field === 'wastage_weight') {
-        item.wastage_weight = value;
-        item.wastage_percent = (value === '' || gross === 0) ? '' : ((parseFloat(value) / gross) * 100).toFixed(2);
-    } else { item[field] = value; }
+    } else { 
+        item[field] = value; 
+    }
     setCart(newCart);
   };
 
-  // --- NEW: EXCHANGE MODAL HANDLERS ---
-  const openExchangeModal = (index = null) => {
-    if (index !== null) {
-      setEditingExchangeIndex(index);
-      setExchangeEntry(exchangeItems[index]);
-    } else {
-      setEditingExchangeIndex(null);
-      // Reset with default rate based on Metal Type
-      setExchangeEntry({ 
-        name: 'Old Gold', 
-        metal_type: 'GOLD', 
-        gross_weight: '', 
-        less_percent: '', 
-        less_weight: '', 
-        net_weight: 0, 
-        rate: rates.GOLD, 
-        total: 0 
-      });
-    }
-    setShowExchangeModal(true);
-  };
-
-  const handleExchangeFormChange = (field, value) => {
-    const newData = { ...exchangeEntry, [field]: value };
-    
-    // Auto-update Rate if metal type changes (only if user hasn't manually set a weird rate)
-    if (field === 'metal_type') {
-       newData.rate = value === 'SILVER' ? rates.SILVER : rates.GOLD;
-    }
-
-    // Calculations
-    const gross = parseFloat(field === 'gross_weight' ? value : newData.gross_weight) || 0;
-    
-    if (field === 'less_percent') {
-        const pct = parseFloat(value) || 0;
-        newData.less_weight = (gross * (pct / 100)).toFixed(3);
-    } else if (field === 'less_weight') {
-        const wt = parseFloat(value) || 0;
-        newData.less_percent = gross > 0 ? ((wt / gross) * 100).toFixed(2) : 0;
-    } else if (field === 'gross_weight') {
-        // Recalculate weight deduction based on existing percent
-        const pct = parseFloat(newData.less_percent) || 0;
-        newData.less_weight = (parseFloat(value) * (pct / 100)).toFixed(3);
-    }
-
-    const lessWt = parseFloat(newData.less_weight) || 0;
-    const netWt = gross - lessWt;
-    newData.net_weight = netWt > 0 ? netWt.toFixed(3) : 0;
-    
-    const rate = parseFloat(field === 'rate' ? value : newData.rate) || 0;
-    const totalVal = Math.round(parseFloat(newData.net_weight) * rate);
-    newData.total = isNaN(totalVal) ? 0 : totalVal;
-
-    setExchangeEntry(newData);
-  };
-
-  const saveExchangeItem = () => {
-    if (!exchangeEntry.name || !exchangeEntry.gross_weight || !exchangeEntry.rate) return alert("Name, Weight and Rate are required");
-    
-    if (editingExchangeIndex !== null) {
-      // Update existing
-      const updated = [...exchangeItems];
-      updated[editingExchangeIndex] = exchangeEntry;
-      setExchangeItems(updated);
-    } else {
-      // Add new
-      setExchangeItems([...exchangeItems, { ...exchangeEntry, id: Date.now() }]);
-    }
-    setShowExchangeModal(false);
-  };
-
-  const removeExchangeItem = (index) => {
-      setExchangeItems(exchangeItems.filter((_, i) => i !== index));
-  };
-
-  // --- TOTALS & SAVING ---
+  // --- CALCULATION LOGIC (The Brains) ---
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
     const rate = parseFloat(item.rate) || 0;
     const mc = parseFloat(item.making_charges) || 0;
     const discount = parseFloat(item.discount) || 0;
-    return (weight + wastageWt) * rate + mc - discount;
+
+    // SCENARIO 1: STANDARD (Gold)
+    // Formula: (Wt + Wastage) * Rate + MC
+    if (item.calc_method === 'STANDARD') {
+        return ((weight + wastageWt) * rate) + mc - discount;
+    }
+
+    // SCENARIO 2: RATE ADD ON (Silver 92)
+    // Formula: Weight * (Rate + MC)
+    // Here 'MC' is used as the 'Extra Amount' (e.g., +10)
+    if (item.calc_method === 'RATE_ADD_ON') {
+        return (weight * (rate + mc)) - discount;
+    }
+
+    // SCENARIO 3: FIXED PRICE (Sterling Ring)
+    // Formula: Weight * Rate
+    // Here 'Rate' is the Fixed Price set during entry
+    if (item.calc_method === 'FIXED_PRICE') {
+        return (weight * rate) - discount; // MC usually ignored or added flat
+    }
+
+    return 0;
   };
+
+  // Totals
   const taxableAmount = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
-  const grossTotal = cart.reduce((acc, item) => acc + ((parseFloat(item.gross_weight)||0) + (parseFloat(item.wastage_weight)||0)) * (parseFloat(item.rate)||0) + (parseFloat(item.making_charges)||0), 0);
+  const grossTotal = cart.reduce((acc, item) => acc + ((parseFloat(item.gross_weight)||0) + (parseFloat(item.wastage_weight)||0)) * (parseFloat(item.rate)||0) + (parseFloat(item.making_charges)||0), 0); // Approx
   const totalDiscount = cart.reduce((acc, item) => acc + (parseFloat(item.discount) || 0), 0);
   const sgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
   const cgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
@@ -269,33 +315,56 @@ function Billing() {
   const cashReceived = paidAmount === '' ? netPayable : parseFloat(paidAmount);
   const balancePending = netPayable - cashReceived;
 
+  // --- EXCHANGE MODAL ---
+  const openExchangeModal = (index = null) => {
+    if (index !== null) {
+      setEditingExchangeIndex(index);
+      setExchangeEntry(exchangeItems[index]);
+    } else {
+      setEditingExchangeIndex(null);
+      setExchangeEntry({ 
+        name: 'Old Gold', metal_type: 'GOLD', gross_weight: '', less_percent: '', less_weight: '', net_weight: 0, rate: rates.GOLD, total: 0 
+      });
+    }
+    setShowExchangeModal(true);
+  };
+
+  const handleExchangeFormChange = (field, value) => {
+    const newData = { ...exchangeEntry, [field]: value };
+    if (field === 'metal_type') newData.rate = value === 'SILVER' ? rates.SILVER : rates.GOLD;
+    const gross = parseFloat(field === 'gross_weight' ? value : newData.gross_weight) || 0;
+    
+    if (field === 'less_percent') newData.less_weight = (gross * (parseFloat(value) / 100)).toFixed(3);
+    else if (field === 'less_weight') newData.less_percent = gross > 0 ? ((parseFloat(value) / gross) * 100).toFixed(2) : 0;
+    else if (field === 'gross_weight') newData.less_weight = (parseFloat(value) * (parseFloat(newData.less_percent) / 100)).toFixed(3);
+
+    const netWt = gross - (parseFloat(newData.less_weight) || 0);
+    newData.net_weight = netWt > 0 ? netWt.toFixed(3) : 0;
+    newData.total = Math.round(parseFloat(newData.net_weight) * (parseFloat(newData.rate) || 0));
+    setExchangeEntry(newData);
+  };
+
+  const saveExchangeItem = () => {
+    if (!exchangeEntry.name || !exchangeEntry.gross_weight) return alert("Required fields missing");
+    const updated = [...exchangeItems];
+    if (editingExchangeIndex !== null) updated[editingExchangeIndex] = exchangeEntry;
+    else updated.push({ ...exchangeEntry, id: Date.now() });
+    setExchangeItems(updated);
+    setShowExchangeModal(false);
+  };
+
   const handleSaveAndPrint = async () => {
     if (cart.length === 0) return alert("Cart is empty");
-    if (!selectedCustomer) return alert("Please select a Customer first");
-    if (balancePending > 0) {
-        if (!window.confirm(`⚠️ PARTIAL PAYMENT DETECTED\n\nBalance Pending: ₹${balancePending.toLocaleString()}\n\nProceed?`)) return;
-    }
-
+    if (!selectedCustomer) return alert("Select Customer");
+    
     const billData = {
       customer: selectedCustomer,
       items: cart.map(item => ({
-        item_id: item.item_id, 
-        item_name: item.item_desc ? `${item.item_name} (${item.item_desc})` : item.item_name,
-        metal_type: item.metal_type,
-        gross_weight: item.gross_weight, 
-        rate: item.rate, 
-        making_charges: item.making_charges,
-        wastage_weight: item.wastage_weight, 
-        neighbour_id: item.neighbour_id,
+        ...item,
         total: Math.round(calculateItemTotal(item))
       })),
       exchangeItems, 
-      totals: { 
-          grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, 
-          exchangeTotal, roundOff, netPayable,
-          paidAmount: cashReceived,
-          balance: balancePending
-      },
+      totals: { grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, exchangeTotal, roundOff, netPayable, paidAmount: cashReceived, balance: balancePending },
       includeGST
     };
 
@@ -312,12 +381,11 @@ function Billing() {
   return (
     <div className="container-fluid pb-5">
       <div className="row g-3">
-        {/* LEFT COLUMN: CUSTOMER & CART */}
         <div className="col-md-9">
           
-          {/* CUSTOMER SEARCH / CARD */}
+          {/* CUSTOMER SECTION */}
           <div className="row g-3 mb-3">
-             {!selectedCustomer && (
+             {!selectedCustomer ? (
                  <div className="col-md-12">
                      <div className="card shadow-sm border-primary border-2">
                         <div className="card-body">
@@ -325,7 +393,7 @@ function Billing() {
                            <div className="position-relative">
                              <div className="input-group">
                                <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
-                               <input className="form-control form-control-lg" placeholder="Enter Mobile Number or Name..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} autoFocus />
+                               <input className="form-control form-control-lg" placeholder="Mobile or Name..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} autoFocus />
                              </div>
                              {customerResults.length > 0 && (
                                  <div className="position-absolute w-100 mt-1 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000}}>
@@ -340,8 +408,7 @@ function Billing() {
                         </div>
                      </div>
                  </div>
-             )}
-             {selectedCustomer && (
+             ) : (
                  <div className="col-md-12">
                      <div className="card shadow-sm bg-success text-white">
                         <div className="card-body d-flex justify-content-between align-items-center">
@@ -356,22 +423,53 @@ function Billing() {
           {/* ADD ITEM CARD */}
           <div className="card shadow-sm mb-3 border-primary border-2">
             <div className="card-body py-2">
+               {/* TOP ROW: SEARCH & RATES */}
                <div className="d-flex gap-3 mb-2 align-items-center">
                   <div className="flex-grow-1 position-relative" ref={searchRef}>
                      <div className="input-group input-group-sm"><span className="input-group-text bg-white border-end-0"><i className="bi bi-search"></i></span><input className="form-control border-start-0 ps-0 fw-bold" placeholder="Scan Barcode or Type Item Name..." value={entry.item_name} onChange={e => handleEntryChange('item_name', e.target.value)} /></div>
                      {searchResults.length > 0 && (<div className="position-absolute w-100 mt-1 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000, maxHeight:'300px', overflowY:'auto'}}>{searchResults.map(item => (<button key={item.id} className="list-group-item list-group-item-action d-flex align-items-center p-2" onClick={() => selectItem(item)}><div className="fw-bold">{item.item_name}</div></button>))}</div>)}
                   </div>
                   <div className="d-flex gap-2">
-                    <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-warning text-dark fw-bold">Au</span><input type="number" className="form-control fw-bold text-primary px-1" value={rates.GOLD} onChange={e => setRates({...rates, GOLD: e.target.value})} /></div>
-                    <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-secondary text-white fw-bold">Ag</span><input type="number" className="form-control fw-bold text-secondary px-1" value={rates.SILVER} onChange={e => setRates({...rates, SILVER: e.target.value})} /></div>
+                    <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-warning text-dark fw-bold">Au</span><input type="number" className="form-control fw-bold text-primary px-1" value={rates.GOLD} disabled /></div>
+                    <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-secondary text-white fw-bold">Ag</span><input type="number" className="form-control fw-bold text-secondary px-1" value={rates.SILVER} disabled /></div>
                   </div>
                </div>
+
+               {/* BOTTOM ROW: INPUTS */}
                <div className="row g-2 align-items-end">
-                  <div className="col-md-2"><label className="small fw-bold text-muted">Metal</label><select className="form-select form-select-sm fw-bold" value={entry.metal_type} onChange={e => handleEntryChange('metal_type', e.target.value)}><option>GOLD</option><option>SILVER</option></select></div>
-                  <div className="col-md-2"><label className="small fw-bold text-muted">NickID</label><input className="form-control form-control-sm" placeholder="e.g. RJ" value={entry.item_desc} onChange={e => handleEntryChange('item_desc', e.target.value)} onKeyDown={handleKeyDown} /></div>
-                  <div className="col-md-2"><label className="small fw-bold text-muted">Weight (g)</label><input type="number" className="form-control form-control-sm" placeholder="0.000" value={entry.gross_weight} onChange={e => handleEntryChange('gross_weight', e.target.value)} onKeyDown={handleKeyDown} /></div>
-                  <div className="col-md-1"><label className="small fw-bold text-muted">Wst%</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.wastage_percent} onChange={e => handleEntryChange('wastage_percent', e.target.value)} onKeyDown={handleKeyDown} /></div>
-                  <div className="col-md-2"><label className="small fw-bold text-muted">MC (₹)</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} /></div>
+                  <div className="col-md-2">
+                      <label className="small fw-bold text-muted">Metal</label>
+                      <select className="form-select form-select-sm fw-bold" value={entry.metal_type} onChange={e => handleEntryChange('metal_type', e.target.value)}><option>GOLD</option><option>SILVER</option></select>
+                  </div>
+                  <div className="col-md-2">
+                      <label className="small fw-bold text-muted">NickID</label>
+                      <input className="form-control form-control-sm" placeholder="e.g. RJ" value={entry.item_desc} onChange={e => handleEntryChange('item_desc', e.target.value)} onKeyDown={handleKeyDown} />
+                  </div>
+                  <div className="col-md-2">
+                      <label className="small fw-bold text-muted">Weight (g)</label>
+                      <input type="number" className="form-control form-control-sm" placeholder="0.000" value={entry.gross_weight} onChange={e => handleEntryChange('gross_weight', e.target.value)} onKeyDown={handleKeyDown} />
+                  </div>
+                  
+                  {/* DYNAMIC FIELDS BASED ON METHOD */}
+                  {entry.calc_method === 'STANDARD' && (
+                      <>
+                        <div className="col-md-1"><label className="small fw-bold text-muted">Wst%</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.wastage_percent} onChange={e => handleEntryChange('wastage_percent', e.target.value)} onKeyDown={handleKeyDown} /></div>
+                        <div className="col-md-2"><label className="small fw-bold text-muted">MC (₹)</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} /></div>
+                      </>
+                  )}
+                  {entry.calc_method === 'RATE_ADD_ON' && (
+                        <div className="col-md-3">
+                            <label className="small fw-bold text-info">Extra/g (Rate + X)</label>
+                            <input type="number" className="form-control form-control-sm border-info" placeholder="10" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} />
+                        </div>
+                  )}
+                  {entry.calc_method === 'FIXED_PRICE' && (
+                        <div className="col-md-3">
+                            <label className="small fw-bold text-success">Fixed Price /g</label>
+                            <input type="number" className="form-control form-control-sm border-success fw-bold" placeholder="150" value={entry.fixed_price} onChange={e => handleEntryChange('fixed_price', e.target.value)} onKeyDown={handleKeyDown} />
+                        </div>
+                  )}
+
                   <div className="col-md-3"><button className="btn btn-primary btn-sm w-100 fw-bold" onClick={handleManualAdd}>ADD ITEM</button></div>
                </div>
             </div>
@@ -382,15 +480,35 @@ function Billing() {
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                 <thead className="table-light small text-center">
-                  <tr><th>Item</th><th>Wt</th><th>Wastage</th><th>MC</th><th>Rate</th><th>Total</th><th></th></tr>
+                  <tr><th>Item</th><th>Wt</th><th>Wastage</th><th>MC / Extra</th><th>Rate</th><th>Total</th><th></th></tr>
                 </thead>
                 <tbody>
                   {cart.map((item, i) => (
                     <tr key={i} className="text-center">
-                      <td className="text-start"><div className="fw-bold">{item.item_name}</div><div className="small text-muted">{item.item_id || 'MANUAL'}</div></td>
+                      <td className="text-start">
+                          <div className="fw-bold">{item.item_name}</div>
+                          {item.calc_method !== 'STANDARD' && <span className="badge bg-info text-dark" style={{fontSize:'0.6em'}}>{item.calc_method.replace('_',' ')}</span>}
+                      </td>
                       <td className="fw-bold">{item.gross_weight}</td>
-                      <td>{item.wastage_percent}% ({item.wastage_weight}g)</td>
-                      <td>{item.making_charges}</td>
+                      
+                      {/* Dynamic Columns based on Method */}
+                      {item.calc_method === 'STANDARD' ? (
+                          <>
+                            <td>{item.wastage_percent}% ({item.wastage_weight}g)</td>
+                            <td>{item.making_charges}</td>
+                          </>
+                      ) : item.calc_method === 'RATE_ADD_ON' ? (
+                          <>
+                            <td className="text-muted">-</td>
+                            <td>+{item.making_charges}/g</td>
+                          </>
+                      ) : (
+                          <>
+                            <td className="text-muted">-</td>
+                            <td className="text-muted">Fixed</td>
+                          </>
+                      )}
+
                       <td>{item.rate}</td>
                       <td className="fw-bold text-success">{Math.round(calculateItemTotal(item)).toLocaleString()}</td>
                       <td><button className="btn btn-sm text-danger" onClick={() => removeFromCart(i)}><i className="bi bi-x-lg"></i></button></td>
@@ -402,7 +520,7 @@ function Billing() {
             </div>
           </div>
 
-          {/* EXCHANGE SECTION (REVAMPED) */}
+          {/* EXCHANGE SECTION */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-2 d-flex justify-content-between align-items-center">
                 <span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Exchange / Old Gold</span>
@@ -428,7 +546,7 @@ function Billing() {
                       </tbody>
                    </table>
                 ) : (
-                    <div className="text-center py-3 text-muted small">No Old Gold added. Click "+ Add Old Gold" to exchange.</div>
+                    <div className="text-center py-3 text-muted small">No Old Gold added.</div>
                 )}
              </div>
           </div>
@@ -482,7 +600,7 @@ function Billing() {
         </div>
       )}
 
-      {/* NEW: EXCHANGE ITEM MODAL */}
+      {/* EXCHANGE ITEM MODAL (Same as before) */}
       {showExchangeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
            <div className="modal-dialog">
@@ -510,7 +628,7 @@ function Billing() {
                         </div>
                     </div>
                     
-                    <label className="form-label small fw-bold text-danger">Deductions (Stones / Dust)</label>
+                    <label className="form-label small fw-bold text-danger">Deductions</label>
                     <div className="input-group mb-3">
                         <span className="input-group-text text-muted small">Less %</span>
                         <input type="number" className="form-control" placeholder="0" value={exchangeEntry.less_percent} onChange={e => handleExchangeFormChange('less_percent', e.target.value)} />
