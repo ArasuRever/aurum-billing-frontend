@@ -1,3 +1,4 @@
+//
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -12,7 +13,7 @@ function VendorDetails() {
   const [transactions, setTransactions] = useState([]);
   const [agents, setAgents] = useState([]);
   
-  // --- NEW: Master Items for Auto-Complete ---
+  // --- MASTER ITEMS (For Auto-Suggest) ---
   const [masterItems, setMasterItems] = useState([]); 
 
   // UI Modes
@@ -52,14 +53,16 @@ function VendorDetails() {
       setAgents(agentRes.data || []);
 
       // --- FETCH MASTER SETTINGS ---
+      fetchMasterItems();
+
+    } catch (err) { console.error("Error loading data", err); }
+  };
+
+  const fetchMasterItems = async () => {
       try {
         const masterRes = await api.getMasterItems();
         setMasterItems(masterRes.data);
-      } catch (e) {
-        console.warn("Settings API not linked yet", e);
-      }
-
-    } catch (err) { console.error("Error loading data", err); }
+      } catch (e) { console.warn("Settings API error", e); }
   };
 
   // --- VENDOR ACTIONS ---
@@ -113,6 +116,9 @@ function VendorDetails() {
   const showSilverOption = () => !vendor || !vendor.vendor_type || vendor.vendor_type === 'SILVER' || vendor.vendor_type === 'BOTH';
 
   const initStockForm = () => {
+    // Re-fetch master items when opening form to ensure we have latest added from Settings
+    fetchMasterItems();
+    
     setStockRows([{ 
       metal_type: getDefaultMetal(), 
       stock_type: 'SINGLE', 
@@ -148,9 +154,7 @@ function VendorDetails() {
     let gross = parseFloat(copy[index].gross_weight) || 0;
     let wastage = parseFloat(copy[index].wastage_percent) || 0;
     
-    // Update Pure if weight/wastage changes
     if (field === 'gross_weight' || field === 'wastage_percent') {
-        // If updating weight, ensure we use the new value
         if(field === 'gross_weight') gross = parseFloat(value) || 0;
         if(field === 'wastage_percent') wastage = parseFloat(value) || 0;
         
@@ -158,27 +162,44 @@ function VendorDetails() {
     }
 
     // 2. Auto-Fill Logic (Master Settings)
-    const currentRow = copy[index];
-    const matchedMaster = masterItems.find(m => m.item_name === currentRow.item_name && m.metal_type === currentRow.metal_type);
+    // We trim the input to ensure accurate matching even with spaces
+    if (field === 'item_name') {
+        const typedName = value.trim().toLowerCase();
+        
+        // Find match in master items (Case Insensitive)
+        const matchedMaster = masterItems.find(m => 
+            m.item_name.toLowerCase() === typedName && 
+            m.metal_type === copy[index].metal_type
+        );
 
-    if (field === 'item_name' && matchedMaster) {
-        // Auto-fill Wastage
-        copy[index].wastage_percent = matchedMaster.default_wastage;
-        // Recalculate Pure immediately after auto-fill
-        wastage = parseFloat(matchedMaster.default_wastage);
-        copy[index].calc_total_pure = (gross * (wastage / 100)).toFixed(3);
+        if (matchedMaster) {
+            // Found a rule! Auto-fill
+            copy[index].wastage_percent = matchedMaster.default_wastage;
+            
+            // Recalculate Pure
+            wastage = parseFloat(matchedMaster.default_wastage);
+            copy[index].calc_total_pure = (gross * (wastage / 100)).toFixed(3);
 
-        // Auto-fill Making Charges
-        if (matchedMaster.mc_type === 'FIXED') {
-            copy[index].making_charges = matchedMaster.mc_value;
-        } else if (matchedMaster.mc_type === 'PER_GRAM' && gross > 0) {
-            copy[index].making_charges = (gross * parseFloat(matchedMaster.mc_value)).toFixed(2);
+            // Auto-fill Making Charges
+            if (matchedMaster.mc_type === 'FIXED') {
+                copy[index].making_charges = matchedMaster.mc_value;
+            } else if (matchedMaster.mc_type === 'PER_GRAM' && gross > 0) {
+                copy[index].making_charges = (gross * parseFloat(matchedMaster.mc_value)).toFixed(2);
+            }
         }
     }
 
-    // 3. Auto-Calc Making Charges when Weight Changes (if Per Gram)
-    if (field === 'gross_weight' && matchedMaster && matchedMaster.mc_type === 'PER_GRAM') {
-        copy[index].making_charges = (parseFloat(value) * parseFloat(matchedMaster.mc_value)).toFixed(2);
+    // 3. Auto-Calc Making Charges when Weight Changes (if Per Gram rule exists for this item)
+    if (field === 'gross_weight') {
+        const typedName = copy[index].item_name.trim().toLowerCase();
+        const matchedMaster = masterItems.find(m => 
+            m.item_name.toLowerCase() === typedName && 
+            m.metal_type === copy[index].metal_type
+        );
+        
+        if (matchedMaster && matchedMaster.mc_type === 'PER_GRAM') {
+             copy[index].making_charges = (parseFloat(value) * parseFloat(matchedMaster.mc_value)).toFixed(2);
+        }
     }
 
     setStockRows(copy);
@@ -293,11 +314,18 @@ function VendorDetails() {
                         </select>
                     </td>
                     <td>
-                        {/* AUTO-SUGGEST LIST LINKED TO MASTER SETTINGS */}
-                        <input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} />
+                        {/* AUTO-SUGGEST LIST */}
+                        <input 
+                            className="form-control form-control-sm" 
+                            list={`suggestions-${i}`} 
+                            placeholder="Type to search..." 
+                            value={row.item_name} 
+                            onChange={e => handleRowChange(i, 'item_name', e.target.value)} 
+                            autoComplete="off"
+                        />
                         <datalist id={`suggestions-${i}`}>
                             {masterItems
-                                .filter(m => m.metal_type === row.metal_type) // Filter by row's metal
+                                .filter(m => m.metal_type === row.metal_type) 
                                 .map((m, idx) => <option key={idx} value={m.item_name} />)
                             }
                         </datalist>

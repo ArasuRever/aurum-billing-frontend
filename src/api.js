@@ -1,3 +1,4 @@
+//
 import axios from 'axios';
 
 const API_URL = 'http://localhost:5000/api';
@@ -28,18 +29,19 @@ export const api = {
   searchBillingItem: (q) => axios.get(`${API_URL}/billing/search-item?q=${q}`),
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
   deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`),
-  
-  // NEW: Sales History
   getBillHistory: (search) => axios.get(`${API_URL}/billing/history`, { params: { search } }),
-
-  // NEW: Balance Payments
   addBalancePayment: (data) => axios.post(`${API_URL}/billing/add-payment`, data),
 
   // --- SHOPS (B2B) ---
   addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
-  getShops: () => axios.get(`${API_URL}/shops/list`),
+  // Added timestamp to prevent caching
+  getShops: () => axios.get(`${API_URL}/shops/list?t=${Date.now()}`),
   getShopDetails: (id) => axios.get(`${API_URL}/shops/${id}`),
   updateShop: (id, data) => axios.put(`${API_URL}/shops/${id}`, data),
+  
+  // NEW: Delete Shop
+  deleteShop: (id) => axios.delete(`${API_URL}/shops/${id}`),
+
   shopTransaction: (data) => axios.post(`${API_URL}/shops/transaction`, data),
   deleteShopTransaction: (id) => axios.delete(`${API_URL}/shops/transaction/${id}`),
   settleShopTransaction: (id) => axios.post(`${API_URL}/shops/settle`, { transaction_id: id }),
@@ -53,8 +55,6 @@ export const api = {
   getCustomerDetails: (phone) => axios.get(`${API_URL}/customers/details/${phone}`),
   addCustomer: (data) => axios.post(`${API_URL}/customers/add`, data),
   updateCustomer: (id, data) => axios.put(`${API_URL}/customers/update/${id}`, data),
-  
-  // NEW: Customer Deletion & Restore
   getRecycleBin: () => axios.get(`${API_URL}/customers/recycle-bin`),
   softDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/soft-delete/${id}`),
   restoreCustomer: (id) => axios.put(`${API_URL}/customers/restore/${id}`),
@@ -65,16 +65,14 @@ export const api = {
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
   processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
 
-  // SETTINGS (Master Items)
-  getMasterItems: () => axios.get(`${API_URL}/settings/items`),
-  addMasterItem: (data) => axios.post(`${API_URL}/settings/items`, data),
-  deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
-
-  // SETTINGS (Daily Rates & Master Items)
+  // --- SETTINGS ---
   getDailyRates: () => axios.get(`${API_URL}/settings/rates`),
-  updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data), // { metal_type: 'GOLD', rate: 7500 }
+  updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data),
   
+  // Master Items
   getMasterItems: () => axios.get(`${API_URL}/settings/items`),
-  addMasterItem: (data) => axios.post(`${API_URL}/settings/items`, data),
+  addMasterItem: (data) => axios.post(`${API_URL}/settings/items`, data), 
+  addMasterItemsBulk: (data) => axios.post(`${API_URL}/settings/items/bulk`, data), 
+  updateMasterItem: (id, data) => axios.put(`${API_URL}/settings/items/${id}`, data), 
   deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
 };
