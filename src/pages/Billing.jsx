@@ -35,7 +35,6 @@ function Billing() {
     making_charges: '', 
     item_image: null,
     neighbour_id: null,
-    // NEW: To track calculation logic
     calc_method: 'STANDARD', // STANDARD, RATE_ADD_ON, FIXED_PRICE
     fixed_price: 0 // Used if calc_method is FIXED_PRICE
   });
@@ -108,6 +107,7 @@ function Billing() {
 
   const selectCustomer = (cust) => { setSelectedCustomer(cust); setCustomerSearch(''); setCustomerResults([]); };
   const clearCustomer = () => { setSelectedCustomer(null); setCustomerSearch(''); };
+  
   const handleAddCustomer = async () => {
     if(!newCustomer.name || !newCustomer.phone) return alert("Name/Phone required");
     try {
@@ -120,7 +120,6 @@ function Billing() {
 
   // --- CART & ENTRY HANDLERS ---
 
-  // 1. Handle Manual Input
   const handleEntryChange = (field, value) => {
     let finalValue = value;
     let updates = { [field]: finalValue };
@@ -147,13 +146,13 @@ function Billing() {
         // Try to match typed name with Master Settings
         const matchedRule = masterItems.find(m => m.item_name.toLowerCase() === finalValue.toLowerCase() && m.metal_type === entry.metal_type);
         if (matchedRule) {
-            updates.calc_method = matchedRule.calc_method; // STANDARD, RATE_ADD_ON, FIXED_PRICE
+            updates.calc_method = matchedRule.calc_method; 
             updates.wastage_percent = matchedRule.default_wastage || '';
             
             // Map MC based on type
             if (matchedRule.calc_method === 'FIXED_PRICE') {
                 updates.fixed_price = matchedRule.mc_value; // Use mc_value as the Fixed Rate
-                updates.making_charges = ''; // Clear MC display for clarity
+                updates.making_charges = ''; 
             } else {
                 updates.making_charges = matchedRule.mc_value || '';
                 updates.fixed_price = 0;
@@ -167,11 +166,10 @@ function Billing() {
     setEntry(prev => ({ ...prev, ...updates }));
   };
 
-  // 2. Select from Search (Inventory)
+  // Select from Search (Inventory)
   const selectItem = (item) => { 
       setSearchResults([]); 
       
-      // Check for Master Rule matches
       const matchedRule = masterItems.find(m => m.item_name === item.item_name && m.metal_type === item.metal_type);
       
       let method = 'STANDARD';
@@ -181,14 +179,13 @@ function Billing() {
 
       if (matchedRule) {
           method = matchedRule.calc_method;
-          // Prefer master rule wastage/mc over inventory defaults if set, or keep inventory
           if(matchedRule.default_wastage > 0) wast = matchedRule.default_wastage;
           
           if(method === 'FIXED_PRICE') {
               fixed = matchedRule.mc_value;
               mc = '';
           } else if (method === 'RATE_ADD_ON') {
-              mc = matchedRule.mc_value; // Use MC field as the "Add On" amount
+              mc = matchedRule.mc_value; 
           } else {
               if(matchedRule.mc_value > 0) mc = matchedRule.mc_value;
           }
@@ -203,7 +200,6 @@ function Billing() {
           gross_weight: item.gross_weight,
           neighbour_id: item.neighbour_shop_id || null,
           item_desc: '',
-          // Smart Values
           calc_method: method,
           wastage_percent: wast,
           making_charges: mc,
@@ -211,7 +207,7 @@ function Billing() {
       });
   };
 
-  // 3. Add to Cart
+  // Add to Cart
   const performAddToCart = (itemToAdd) => {
     if (itemToAdd.item_id && cart.find(c => c.item_id === itemToAdd.item_id)) return alert("Item already in cart.");
     
@@ -222,7 +218,7 @@ function Billing() {
     // Determine Rate based on Calc Method
     let appliedRate = itemToAdd.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
     if (itemToAdd.calc_method === 'FIXED_PRICE') {
-        appliedRate = itemToAdd.fixed_price; // Override Daily Rate
+        appliedRate = itemToAdd.fixed_price;
     }
 
     const newItem = {
@@ -230,7 +226,7 @@ function Billing() {
       id: itemToAdd.item_id || `MANUAL-${Date.now()}`,
       isManual: !itemToAdd.item_id,
       wastage_weight: wastWt,
-      rate: appliedRate, // This stores either Daily Rate or Fixed Price
+      rate: appliedRate,
       discount: '', 
       total: 0,
       neighbour_id: itemToAdd.neighbour_id 
@@ -255,21 +251,14 @@ function Billing() {
 
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
   
-  const updateCartItem = (index, field, value) => {
-    const newCart = [...cart];
-    const item = newCart[index];
-    const gross = parseFloat(item.gross_weight) || 0;
-    
-    if (field === 'wastage_percent') {
-        item.wastage_percent = value;
-        item.wastage_weight = value === '' ? '' : (gross * (parseFloat(value) / 100)).toFixed(3);
-    } else { 
-        item[field] = value; 
-    }
-    setCart(newCart);
+  const clearCart = () => {
+      if(window.confirm("Are you sure you want to clear the entire cart?")) {
+          setCart([]);
+          setPaidAmount('');
+      }
   };
 
-  // --- CALCULATION LOGIC (The Brains) ---
+  // --- CALCULATION LOGIC ---
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -277,24 +266,19 @@ function Billing() {
     const mc = parseFloat(item.making_charges) || 0;
     const discount = parseFloat(item.discount) || 0;
 
-    // SCENARIO 1: STANDARD (Gold)
-    // Formula: (Wt + Wastage) * Rate + MC
+    // SCENARIO 1: STANDARD (Gold) -> (Wt + Wastage) * Rate + MC
     if (item.calc_method === 'STANDARD') {
         return ((weight + wastageWt) * rate) + mc - discount;
     }
 
-    // SCENARIO 2: RATE ADD ON (Silver 92)
-    // Formula: Weight * (Rate + MC)
-    // Here 'MC' is used as the 'Extra Amount' (e.g., +10)
+    // SCENARIO 2: RATE ADD ON (Silver 92) -> Weight * (Rate + MC)
     if (item.calc_method === 'RATE_ADD_ON') {
         return (weight * (rate + mc)) - discount;
     }
 
-    // SCENARIO 3: FIXED PRICE (Sterling Ring)
-    // Formula: Weight * Rate
-    // Here 'Rate' is the Fixed Price set during entry
+    // SCENARIO 3: FIXED PRICE (Sterling Ring) -> Weight * Rate
     if (item.calc_method === 'FIXED_PRICE') {
-        return (weight * rate) - discount; // MC usually ignored or added flat
+        return (weight * rate) - discount;
     }
 
     return 0;
@@ -302,11 +286,15 @@ function Billing() {
 
   // Totals
   const taxableAmount = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
-  const grossTotal = cart.reduce((acc, item) => acc + ((parseFloat(item.gross_weight)||0) + (parseFloat(item.wastage_weight)||0)) * (parseFloat(item.rate)||0) + (parseFloat(item.making_charges)||0), 0); // Approx
   const totalDiscount = cart.reduce((acc, item) => acc + (parseFloat(item.discount) || 0), 0);
+  
+  // Gross Total: Logic adjusted to be (Taxable + Discount) to strictly reflect the sum of item values
+  const grossTotal = taxableAmount + totalDiscount; 
+  
   const sgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
   const cgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
   const billTotalWithTax = taxableAmount + sgstAmount + cgstAmount;
+  
   const exchangeTotal = exchangeItems.reduce((acc, item) => acc + (parseFloat(item.total) || 0), 0);
   const netPayableRaw = billTotalWithTax - exchangeTotal;
   const netPayable = Math.round(netPayableRaw / 10) * 10;
@@ -353,6 +341,10 @@ function Billing() {
     setShowExchangeModal(false);
   };
 
+  const removeExchangeItem = (index) => {
+      setExchangeItems(exchangeItems.filter((_, i) => i !== index));
+  };
+
   const handleSaveAndPrint = async () => {
     if (cart.length === 0) return alert("Cart is empty");
     if (!selectedCustomer) return alert("Select Customer");
@@ -390,13 +382,16 @@ function Billing() {
                      <div className="card shadow-sm border-primary border-2">
                         <div className="card-body">
                            <h5 className="card-title text-primary"><i className="bi bi-person-bounding-box me-2"></i>Find Customer</h5>
-                           <div className="position-relative">
+                           <div className="position-relative d-flex gap-2">
                              <div className="input-group">
                                <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
                                <input className="form-control form-control-lg" placeholder="Mobile or Name..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} autoFocus />
                              </div>
+                             <button className="btn btn-outline-primary fw-bold" onClick={() => setShowCustomerModal(true)}>
+                                 <i className="bi bi-person-plus-fill me-1"></i>New
+                             </button>
                              {customerResults.length > 0 && (
-                                 <div className="position-absolute w-100 mt-1 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000}}>
+                                 <div className="position-absolute w-100 mt-5 shadow bg-white rounded overflow-hidden" style={{zIndex: 1000, top: '10px'}}>
                                      {customerResults.map(cust => (
                                          <button key={cust.id} className="list-group-item list-group-item-action d-flex justify-content-between p-3" onClick={() => selectCustomer(cust)}>
                                              <div><h6 className="mb-0 fw-bold">{cust.name}</h6><small className="text-muted">{cust.phone}</small></div>
@@ -577,7 +572,10 @@ function Billing() {
                             </div>
                         </div>
                         <div className="form-check form-switch mb-3 text-center"><input className="form-check-input float-none me-2" type="checkbox" checked={includeGST} onChange={e => setIncludeGST(e.target.checked)} /><label className="form-check-label small fw-bold">Include GST Bill</label></div>
-                        <button className="btn btn-success w-100 py-3 fw-bold shadow-sm" onClick={handleSaveAndPrint}><i className="bi bi-printer-fill me-2"></i> SAVE & PRINT</button>
+                        <div className="d-grid gap-2">
+                            <button className="btn btn-success py-2 fw-bold shadow-sm" onClick={handleSaveAndPrint}><i className="bi bi-printer-fill me-2"></i> SAVE & PRINT</button>
+                            <button className="btn btn-outline-danger btn-sm" onClick={clearCart}>Clear Cart</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -600,7 +598,7 @@ function Billing() {
         </div>
       )}
 
-      {/* EXCHANGE ITEM MODAL (Same as before) */}
+      {/* EXCHANGE ITEM MODAL */}
       {showExchangeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
            <div className="modal-dialog">
