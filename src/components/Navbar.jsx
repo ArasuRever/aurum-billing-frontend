@@ -3,78 +3,39 @@ import { Link, useLocation } from 'react-router-dom';
 
 function Navbar() {
   const location = useLocation();
-
   const isActive = (path) => location.pathname === path ? 'active fw-bold' : '';
 
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
-      <div className="container-fluid px-4"> 
-        {/* Brand */}
-        <Link className="navbar-brand d-flex align-items-center" to="/">
-          <i className="bi bi-gem me-2"></i>
-          <span className="fw-bold">AURUM</span>
-          <span className="ms-2 fw-light opacity-75">Billing</span>
+    <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm py-3 no-print">
+      <div className="container-fluid">
+        <Link className="navbar-brand fw-bold text-uppercase" to="/billing">
+            <i className="bi bi-gem me-2 text-warning"></i>Aurum Billing
         </Link>
-
-        <button 
-          className="navbar-toggler" 
-          type="button" 
-          data-bs-toggle="collapse" 
-          data-bs-target="#navbarContent"
-        >
+        <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
           <span className="navbar-toggler-icon"></span>
         </button>
-
-        <div className="collapse navbar-collapse" id="navbarContent">
-          <ul className="navbar-nav ms-auto mb-2 mb-lg-0">
+        <div className="collapse navbar-collapse" id="navbarNav">
+          <ul className="navbar-nav ms-auto gap-2">
             
-            {/* VENDORS */}
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/')}`} to="/">
-                <i className="bi bi-people me-1"></i> Vendors
-              </Link>
-            </li>
-
-            {/* SHOP LEDGER (B2B) */}
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/shops')}`} to="/shops">
-                <i className="bi bi-shop me-1"></i> Shop Ledger
-              </Link>
-            </li>
-
-            {/* INVENTORY */}
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/inventory')}`} to="/inventory">
-                <i className="bi bi-box-seam me-1"></i> Inventory
-              </Link>
-            </li>
-
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/customers')}`} to="/customers">
-                <i className="bi bi-person-lines-fill me-1"></i> Customers
-              </Link>
-            </li>
-
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/settings')}`} to="/settings">
-                <i className="bi bi-gear me-1"></i> Settings
-              </Link>
-            </li>
-
-            {/* BILLING */}
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/billing')}`} to="/billing">
-                <i className="bi bi-receipt me-1"></i> New Bill
-              </Link>
-            </li>
-
-            {/* HISTORY (NEW LINK ADDED HERE) */}
-            <li className="nav-item">
-              <Link className={`nav-link ${isActive('/bill-history')}`} to="/bill-history">
-                <i className="bi bi-clock-history me-1"></i> History
-              </Link>
+            {/* CORE OPERATIONS */}
+            <li className="nav-item"><Link className={`nav-link ${isActive('/billing')}`} to="/billing">Billing</Link></li>
+            <li className="nav-item"><Link className={`nav-link ${isActive('/bill-history')}`} to="/bill-history">History</Link></li>
+            <li className="nav-item"><Link className={`nav-link ${isActive('/inventory')}`} to="/inventory">Inventory</Link></li>
+            
+            {/* LEDGER (NEW) */}
+            <li className="nav-item"><Link className={`nav-link ${isActive('/ledger')}`} to="/ledger"><i className="bi bi-wallet2 me-1"></i>Ledger</Link></li>
+            
+            {/* PARTNERS DROPDOWN */}
+            <li className="nav-item dropdown">
+               <a className="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Partners</a>
+               <ul className="dropdown-menu dropdown-menu-end shadow">
+                  <li><Link className="dropdown-item" to="/customers">Customers</Link></li>
+                  <li><Link className="dropdown-item" to="/shops">Shop Ledger (B2B)</Link></li>
+                  <li><Link className="dropdown-item" to="/">Vendors</Link></li>
+               </ul>
             </li>
             
+            <li className="nav-item"><Link className={`nav-link ${isActive('/settings')}`} to="/settings"><i className="bi bi-gear-fill"></i></Link></li>
           </ul>
         </div>
       </div>

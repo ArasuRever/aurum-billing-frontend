@@ -12,10 +12,11 @@ import ShopDetails from './pages/ShopDetails';
 import CustomerManager from './pages/CustomerManager';
 import CustomerDetails from './pages/CustomerDetails';
 import SettingsPage from './pages/SettingsPage';
-
-// --- NEW IMPORTS ---
 import BillHistory from './pages/BillHistory';
 import SalesReturn from './pages/SalesReturn';
+
+// --- NEW IMPORT ---
+import LedgerDashboard from './pages/LedgerDashboard';
 
 function App() {
   return (
@@ -35,8 +36,11 @@ function App() {
             
             {/* BILLING SECTION */}
             <Route path="/billing" element={<Billing />} />
-            <Route path="/bill-history" element={<BillHistory />} /> {/* NEW */}
-            <Route path="/billing/return" element={<SalesReturn />} /> {/* NEW */}
+            <Route path="/bill-history" element={<BillHistory />} />
+            <Route path="/billing/return" element={<SalesReturn />} />
+            
+            {/* LEDGER SECTION */}
+            <Route path="/ledger" element={<LedgerDashboard />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
