@@ -31,7 +31,6 @@ function Billing() {
   });
 
   // --- EXCHANGE STATE (Inline Form) ---
-  // No modal state needed anymore
   const [exchangeEntry, setExchangeEntry] = useState({
     name: '', metal_type: 'GOLD', gross_weight: '', 
     less_percent: '', less_weight: '', net_weight: 0, 
@@ -44,7 +43,10 @@ function Billing() {
   const [cart, setCart] = useState([]);
   const [shops, setShops] = useState([]); 
   const [includeGST, setIncludeGST] = useState(false);
-  const [paidAmount, setPaidAmount] = useState(''); 
+  
+  // --- PAYMENT & INVOICE STATE ---
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [payment, setPayment] = useState({ cash: '', online: '' });
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastBill, setLastBill] = useState(null);
 
@@ -134,7 +136,7 @@ function Billing() {
           item_id: item.id, item_name: item.item_name, barcode: item.barcode, metal_type: item.metal_type,
           gross_weight: item.gross_weight, neighbour_id: item.neighbour_shop_id || null,
           calc_method: method, wastage_percent: wast, making_charges: mc, fixed_price: fixed, item_image: item.item_image,
-          default_wastage: wast // Store original for UI reference
+          default_wastage: wast 
       });
   };
 
@@ -172,23 +174,20 @@ function Billing() {
       const item = newCart[index];
       const gross = parseFloat(item.gross_weight) || 0;
 
-      // Handle Linked Wastage Fields (Percent <-> Weight)
       if (field === 'wastage_percent') {
           item.wastage_percent = value;
           item.wastage_weight = (gross * (parseFloat(value || 0) / 100)).toFixed(3);
       } else if (field === 'wastage_weight') {
           item.wastage_weight = value;
-          // Calculate % based on weight input: (WastageWt / Gross) * 100
           if (gross > 0) item.wastage_percent = ((parseFloat(value || 0) / gross) * 100).toFixed(2);
       } else {
           item[field] = value;
       }
-      
       setCart(newCart);
   };
 
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
-  const clearCart = () => { if(window.confirm("Clear cart?")) { setCart([]); setPaidAmount(''); } };
+  const clearCart = () => { if(window.confirm("Clear cart?")) { setCart([]); setPayment({cash:'', online:''}); } };
 
   // --- CALCULATION LOGIC ---
   const calculateItemTotal = (item) => {
@@ -211,7 +210,6 @@ function Billing() {
       
       const gross = parseFloat(field === 'gross_weight' ? value : newData.gross_weight) || 0;
       
-      // Auto-Calc Deductions
       if (field === 'less_percent') newData.less_weight = (gross * (parseFloat(value || 0) / 100)).toFixed(3);
       else if (field === 'less_weight') newData.less_percent = gross > 0 ? ((parseFloat(value || 0) / gross) * 100).toFixed(2) : 0;
       else if (field === 'gross_weight') newData.less_weight = (parseFloat(value || 0) * (parseFloat(newData.less_percent || 0) / 100)).toFixed(3);
@@ -226,7 +224,6 @@ function Billing() {
   const addExchangeItem = () => {
       if (!exchangeEntry.name || !exchangeEntry.gross_weight) return alert("Missing details");
       setExchangeItems([...exchangeItems, { ...exchangeEntry, id: Date.now() }]);
-      // Reset only fields needed
       setExchangeEntry({ ...exchangeEntry, name: '', gross_weight: '', less_percent: '', less_weight: '', net_weight: 0, total: 0 });
   };
 
@@ -235,7 +232,6 @@ function Billing() {
       const item = updated[index];
       item[field] = value;
       
-      // Recalc Logic for Row
       const gross = parseFloat(item.gross_weight) || 0;
       if (field === 'less_percent') item.less_weight = (gross * (parseFloat(value || 0) / 100)).toFixed(3);
       else if (field === 'less_weight') item.less_percent = gross > 0 ? ((parseFloat(value || 0) / gross) * 100).toFixed(2) : 0;
@@ -256,7 +252,6 @@ function Billing() {
   const taxableAmount = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
   const totalDiscount = cart.reduce((acc, item) => acc + (parseFloat(item.discount) || 0), 0);
   
-  // Gross for summary (Total without discount subtraction logic visually)
   const itemTotalNoDisc = (item) => {
       const weight = parseFloat(item.gross_weight) || 0;
       const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -276,27 +271,54 @@ function Billing() {
   const netPayableRaw = billTotalWithTax - exchangeTotal;
   const netPayable = Math.round(netPayableRaw / 10) * 10;
   const roundOff = netPayable - netPayableRaw;
-  const balancePending = netPayable - (paidAmount === '' ? netPayable : parseFloat(paidAmount));
 
-  const handleSaveAndPrint = async () => {
-    if (cart.length === 0) return alert("Cart is empty");
-    if (!selectedCustomer) return alert("Select Customer");
+  // --- PAYMENT CONFIRMATION LOGIC ---
+  const handleConfirmSale = () => {
+      if (cart.length === 0) return alert("Cart is empty");
+      if (!selectedCustomer) return alert("Select Customer");
+      // Default to full cash if not set
+      if (!payment.cash && !payment.online) {
+          setPayment({ cash: netPayable, online: '' });
+      }
+      setShowPaymentModal(true);
+  };
+
+  const finalizeBill = async () => {
+    const cash = parseFloat(payment.cash) || 0;
+    const online = parseFloat(payment.online) || 0;
+    const totalPaid = cash + online;
+    const balance = netPayable - totalPaid;
+
     const billData = {
       customer: selectedCustomer,
       items: cart.map(item => ({ ...item, total: Math.round(calculateItemTotal(item)) })),
       exchangeItems, 
-      totals: { grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, exchangeTotal, roundOff, netPayable, paidAmount: paidAmount||netPayable, balance: balancePending },
+      totals: { 
+          grossTotal, totalDiscount, taxableAmount, 
+          sgst: sgstAmount, cgst: cgstAmount, 
+          exchangeTotal, roundOff, netPayable, 
+          paidAmount: totalPaid, // Total Paid (Cash+Online)
+          cashReceived: cash, 
+          onlineReceived: online,
+          balance: balance > 0 ? balance : 0 
+      },
       includeGST
     };
+
     try {
       const res = await api.createBill(billData);
       setLastBill({ invoice_id: res.data.invoice_id, date: new Date().toLocaleString(), ...billData });
+      setShowPaymentModal(false);
       setShowInvoice(true);
-      setCart([]); setExchangeItems([]); clearCustomer(); setPaidAmount('');
+      setCart([]); setExchangeItems([]); clearCustomer(); setPayment({cash:'', online:''});
     } catch (err) { alert(`Error: ${err.response?.data?.error || err.message}`); }
   };
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleManualAdd(); };
+
+  // Calculate Balance for Modal Preview
+  const currentTotalPaid = (parseFloat(payment.cash)||0) + (parseFloat(payment.online)||0);
+  const currentBalance = netPayable - currentTotalPaid;
 
   return (
     <div className="container-fluid pb-5">
@@ -389,7 +411,7 @@ function Billing() {
             </div>
           </div>
 
-          {/* 3. CART TABLE (EDITABLE) */}
+          {/* 3. CART TABLE */}
           <div className="card shadow-sm border-0 mb-3">
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
@@ -412,20 +434,14 @@ function Billing() {
                           <div className="fw-bold text-truncate">{item.item_name}</div>
                           {item.calc_method !== 'STANDARD' && <span className="badge bg-info text-dark" style={{fontSize:'0.6em'}}>{item.calc_method.replace('_',' ')}</span>}
                       </td>
-                      
-                      {/* READ ONLY WEIGHT */}
                       <td className="fw-bold">{item.gross_weight}</td>
-                      
-                      {/* EDITABLE WASTAGE (SPLIT COLUMNS) */}
                       {item.calc_method === 'STANDARD' ? (
                           <td>
                               <div className="input-group input-group-sm">
-                                  {/* Percent Input */}
                                   <input type="number" className="form-control text-center px-1" placeholder="%" 
                                       value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} 
                                       title={`Default: ${item.default_wastage || 0}%`}
                                   />
-                                  {/* Weight Input */}
                                   <input type="number" className="form-control text-center px-1 bg-light" placeholder="Wt"
                                       value={item.wastage_weight} onChange={e => updateCartItem(i, 'wastage_weight', e.target.value)} 
                                   />
@@ -435,27 +451,20 @@ function Billing() {
                       ) : (
                           <td className="text-muted">-</td>
                       )}
-
-                      {/* EDITABLE MC / EXTRA */}
                       <td>
                           {item.calc_method === 'FIXED_PRICE' ? <span className="text-muted">Fixed</span> : 
                             <input type="number" className="form-control form-control-sm text-center" 
                                 value={item.making_charges} onChange={e => updateCartItem(i, 'making_charges', e.target.value)} />
                           }
                       </td>
-
-                      {/* EDITABLE RATE */}
                       <td>
                            <input type="number" className="form-control form-control-sm text-center fw-bold text-primary" 
                                 value={item.rate} onChange={e => updateCartItem(i, 'rate', e.target.value)} />
                       </td>
-
-                      {/* EDITABLE DISCOUNT */}
                       <td>
                           <input type="number" className="form-control form-control-sm text-center text-danger fw-bold" 
                                 placeholder="0" value={item.discount} onChange={e => updateCartItem(i, 'discount', e.target.value)} />
                       </td>
-
                       <td className="fw-bold text-success">{Math.round(calculateItemTotal(item)).toLocaleString()}</td>
                       <td><button className="btn btn-sm text-danger" onClick={() => removeFromCart(i)}><i className="bi bi-x-lg"></i></button></td>
                     </tr>
@@ -466,7 +475,7 @@ function Billing() {
             </div>
           </div>
 
-          {/* 4. OLD ITEM EXCHANGE (INLINE & ADJUSTABLE) */}
+          {/* 4. OLD ITEM EXCHANGE */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-2"><span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Old Item Exchange</span></div>
              <div className="card-body p-0">
@@ -476,7 +485,6 @@ function Billing() {
                             <tr><th>Item</th><th>Metal</th><th>Gr. Wt</th><th>Less %</th><th>Less Wt</th><th>Net Wt</th><th>Rate</th><th>Total</th><th></th></tr>
                         </thead>
                         <tbody className="align-middle">
-                            {/* LIST OF ADDED EXCHANGE ITEMS (EDITABLE) */}
                             {exchangeItems.map((item, i) => (
                                 <tr key={item.id}>
                                     <td><input className="form-control form-control-sm" value={item.name} onChange={e => updateExchangeItem(i, 'name', e.target.value)} /></td>
@@ -494,8 +502,6 @@ function Billing() {
                                     <td><button className="btn btn-sm text-danger" onClick={() => removeExchangeItem(i)}>&times;</button></td>
                                 </tr>
                             ))}
-                            
-                            {/* INPUT ROW (ADD NEW) */}
                             <tr className="bg-white">
                                 <td><input className="form-control form-control-sm" placeholder="New Item..." value={exchangeEntry.name} onChange={e => handleExchangeEntryChange('name', e.target.value)} /></td>
                                 <td>
@@ -535,16 +541,11 @@ function Billing() {
                             <small className="text-muted text-uppercase d-block mb-1">Net Payable</small>
                             <h2 className="text-success fw-bold display-6 mb-0">₹{netPayable.toLocaleString()}</h2>
                         </div>
-                        <div className="mb-3">
-                            <label className="small fw-bold text-muted">Cash Received</label>
-                            <div className="input-group">
-                                <span className="input-group-text bg-white fw-bold text-success">₹</span>
-                                <input type="number" className="form-control fw-bold fs-5 text-end" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} />
-                            </div>
-                        </div>
+                        
                         <div className="form-check form-switch mb-3 text-center"><input className="form-check-input float-none me-2" type="checkbox" checked={includeGST} onChange={e => setIncludeGST(e.target.checked)} /><label className="form-check-label small fw-bold">Include GST Bill</label></div>
                         <div className="d-grid gap-2">
-                            <button className="btn btn-success py-2 fw-bold shadow-sm" onClick={handleSaveAndPrint}><i className="bi bi-printer-fill me-2"></i> SAVE & PRINT</button>
+                            {/* CHANGED: Open Payment Modal instead of direct save */}
+                            <button className="btn btn-success py-2 fw-bold shadow-sm" onClick={handleConfirmSale}><i className="bi bi-check-circle-fill me-2"></i> CONFIRM SALE</button>
                             <button className="btn btn-outline-danger btn-sm" onClick={clearCart}>Clear Cart</button>
                         </div>
                     </div>
@@ -567,6 +568,56 @@ function Billing() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* PAYMENT CONFIRMATION MODAL */}
+      {showPaymentModal && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+             <div className="modal-dialog">
+                <div className="modal-content">
+                    <div className="modal-header bg-success text-white">
+                        <h5 className="modal-title fw-bold"><i className="bi bi-wallet2 me-2"></i>Payment Confirmation</h5>
+                        <button className="btn-close btn-close-white" onClick={() => setShowPaymentModal(false)}></button>
+                    </div>
+                    <div className="modal-body">
+                        {/* Mini Summary */}
+                        <div className="card bg-light border-0 mb-3">
+                            <div className="card-body text-center py-2">
+                                <small className="text-muted">Total Payable Amount</small>
+                                <h2 className="text-success fw-bold m-0">₹{netPayable.toLocaleString()}</h2>
+                            </div>
+                        </div>
+
+                        {/* Split Inputs */}
+                        <div className="mb-3">
+                            <label className="form-label fw-bold small text-muted">Cash Received</label>
+                            <div className="input-group">
+                                <span className="input-group-text">₹</span>
+                                <input type="number" className="form-control fw-bold" value={payment.cash} onChange={e => setPayment({...payment, cash: e.target.value})} autoFocus />
+                            </div>
+                        </div>
+                        <div className="mb-3">
+                             <label className="form-label fw-bold small text-muted">Online Payment</label>
+                             <div className="input-group">
+                                 <span className="input-group-text">₹</span>
+                                 <input type="number" className="form-control fw-bold" value={payment.online} onChange={e => setPayment({...payment, online: e.target.value})} />
+                             </div>
+                        </div>
+
+                        {/* Dynamic Balance */}
+                        <div className={`alert ${currentBalance > 0 ? 'alert-danger' : 'alert-success'} d-flex justify-content-between align-items-center mb-0`}>
+                            <span className="fw-bold small">{currentBalance > 0 ? 'BALANCE PENDING (CREDIT)' : 'FULL PAYMENT DONE'}</span>
+                            <span className="fw-bold fs-5">₹{currentBalance > 0 ? currentBalance.toLocaleString() : '0'}</span>
+                        </div>
+                        {currentBalance > 0 && <small className="text-danger d-block mt-1 text-center">* This amount will be added to Customer's Pending Balance</small>}
+                    </div>
+                    <div className="modal-footer">
+                        <button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Back</button>
+                        <button className="btn btn-success fw-bold px-4" onClick={finalizeBill}>GENERATE BILL & PRINT</button>
+                    </div>
+                </div>
+             </div>
+          </div>
       )}
 
       {/* INVOICE PREVIEW */}
