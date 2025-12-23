@@ -144,4 +144,5 @@ export const api = {
   getOldMetalStats: () => axios.get(`${API_URL}/old-metal/stats`),
   getOldMetalList: () => axios.get(`${API_URL}/old-metal/list`),
   addOldMetalPurchase: (data) => axios.post(`${API_URL}/old-metal/purchase`, data),
+  deleteOldMetal: (id) => axios.delete(`${API_URL}/old-metal/${id}`),
 };
