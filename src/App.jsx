@@ -15,8 +15,9 @@ import SettingsPage from './pages/SettingsPage';
 import BillHistory from './pages/BillHistory';
 import SalesReturn from './pages/SalesReturn';
 
-// --- NEW IMPORT ---
 import LedgerDashboard from './pages/LedgerDashboard';
+// --- NEW IMPORT ---
+import OldMetalPage from './pages/OldMetalPage';
 
 function App() {
   return (
@@ -41,6 +42,9 @@ function App() {
             
             {/* LEDGER SECTION */}
             <Route path="/ledger" element={<LedgerDashboard />} />
+
+            {/* OLD METAL SECTION */}
+            <Route path="/old-metal" element={<OldMetalPage />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -139,4 +139,9 @@ export const api = {
   getLedgerHistory: (search) => axios.get(`${API_URL}/ledger/history`, { params: { search } }),
   addExpense: (data) => axios.post(`${API_URL}/ledger/expense`, data),
   adjustBalance: (data) => axios.post(`${API_URL}/ledger/adjust`, data),
+
+  // --- NEW OLD METAL ENDPOINTS ---
+  getOldMetalStats: () => axios.get(`${API_URL}/old-metal/stats`),
+  getOldMetalList: () => axios.get(`${API_URL}/old-metal/list`),
+  addOldMetalPurchase: (data) => axios.post(`${API_URL}/old-metal/purchase`, data),
 };
