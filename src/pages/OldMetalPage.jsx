@@ -193,7 +193,7 @@ function OldMetalPage() {
       setShowSearch(false);
   };
 
-  // --- HISTORY ACTIONS (FIXED DELETE) ---
+  // --- HISTORY ACTIONS ---
   const handleEditHistory = (row) => {
     setCustomer({ customer_name: row.customer_name, mobile: row.mobile });
     setItems([{ 
@@ -211,11 +211,9 @@ function OldMetalPage() {
   const handleDeleteHistory = async (id) => {
      if(window.confirm("Are you sure you want to delete this record?")) {
         try {
-            // FIXED: Uncommented the actual API call
             await api.deleteOldMetal(id); 
             // Update UI locally only after success
             setHistory(history.filter(h => h.id !== id));
-            // Optional: Refresh from server to be sure
             loadData();
         } catch (error) {
             alert("Failed to delete: " + error.message);
@@ -223,7 +221,7 @@ function OldMetalPage() {
      }
   };
 
-  // --- SAVE HANDLER (FIXED CRASH) ---
+  // --- SAVE HANDLER ---
   const handleFinalSave = async () => {
       const hasValidItem = items.some(i => i.item_name && i.gross_weight && i.rate);
       if(!hasValidItem) return alert("Please enter at least one valid Item.");
@@ -245,7 +243,6 @@ function OldMetalPage() {
           
           const res = await api.addOldMetalPurchase(payload);
           
-          // SAFETY CHECK: Ensure response has what we need before setting print data
           if (res && res.data) {
               setPrintData({
                   customer, 
@@ -254,11 +251,8 @@ function OldMetalPage() {
                   voucherNo: res.data.voucher_no || 'NA'
               });
               
-              // Only open print modal if data is ready
               setShowModal(false);
               setShowPrintModal(true);
-              
-              // Reload list in background
               loadData();
 
               // Reset Form
