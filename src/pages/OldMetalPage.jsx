@@ -221,12 +221,29 @@ function OldMetalPage() {
      }
   };
 
-  // --- SAVE HANDLER ---
+  // --- SAVE HANDLER (With Auto-Add Customer) ---
   const handleFinalSave = async () => {
       const hasValidItem = items.some(i => i.item_name && i.gross_weight && i.rate);
       if(!hasValidItem) return alert("Please enter at least one valid Item.");
       
       try {
+          // --- NEW: Auto-Register Customer ---
+          if (customer.mobile && customer.mobile.length >= 10) {
+              try {
+                  // Attempt to add customer to main DB. 
+                  // If they exist, this might fail or return existing, which we ignore.
+                  await api.addCustomer({
+                      name: customer.customer_name,
+                      phone: customer.mobile,
+                      address: 'Walk-in (Old Metal)',
+                      place: 'Local'
+                  });
+              } catch (ignore) {
+                  // Ignore errors (e.g., duplicate phone number)
+              }
+          }
+          // -----------------------------------
+
           const validItems = items.filter(i => i.item_name && i.gross_weight);
 
           const payload = {
@@ -245,9 +262,15 @@ function OldMetalPage() {
           
           if (res && res.data) {
               setPrintData({
-                  customer, 
-                  items: validItems, 
-                  totals: { subTotal, gstAmount, netPayout, cgst, sgst, paymentMode, cashPaid, onlinePaid },
+                  customer: { ...customer }, 
+                  items: JSON.parse(JSON.stringify(validItems)), 
+                  totals: { 
+                      totalAmount: subTotal, 
+                      gstAmount, 
+                      netPayout, 
+                      cgst, 
+                      sgst 
+                  },
                   voucherNo: res.data.voucher_no || 'NA'
               });
               
@@ -376,7 +399,9 @@ function OldMetalPage() {
                             <input 
                                 className="form-control" 
                                 value={customer.customer_name} 
-                                onChange={e => handleCustomerSearch(e.target.value)} 
+                                onChange={e => handleCustomerSearch(e.target.value)}
+                                // FIX: Hide search on blur with delay to allow clicking
+                                onBlur={() => setTimeout(() => setShowSearch(false), 200)} 
                                 placeholder="Walk-in Customer"
                                 autoFocus
                             />
