@@ -49,6 +49,9 @@ function Billing() {
   const [payment, setPayment] = useState({ cash: '', online: '' });
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastBill, setLastBill] = useState(null);
+  
+  // --- NEW: SUCCESS MODAL STATE ---
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const searchRef = useRef(null);
 
@@ -307,10 +310,19 @@ function Billing() {
 
     try {
       const res = await api.createBill(billData);
+      
+      // Store Bill and show Success Modal
       setLastBill({ invoice_id: res.data.invoice_id, date: new Date().toLocaleString(), ...billData });
+      
       setShowPaymentModal(false);
-      setShowInvoice(true);
-      setCart([]); setExchangeItems([]); clearCustomer(); setPayment({cash:'', online:''});
+      setShowSuccessModal(true); // <--- OPEN SUCCESS MODAL
+      
+      // Clear Cart but keep Last Bill for Preview
+      setCart([]); 
+      setExchangeItems([]); 
+      clearCustomer(); 
+      setPayment({cash:'', online:''});
+
     } catch (err) { alert(`Error: ${err.response?.data?.error || err.message}`); }
   };
 
@@ -618,6 +630,32 @@ function Billing() {
                 </div>
              </div>
           </div>
+      )}
+
+      {/* SUCCESS CONFIRMATION MODAL */}
+      {showSuccessModal && lastBill && (
+        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1100}}>
+           <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow-lg">
+                 <div className="modal-body text-center p-5">
+                     <div className="mb-3">
+                        <i className="bi bi-check-circle-fill text-success" style={{fontSize: '4rem'}}></i>
+                     </div>
+                     <h3 className="fw-bold text-dark">Sale Successful!</h3>
+                     <p className="text-muted">Sold to <strong className="text-primary">{lastBill.customer.name}</strong></p>
+                     
+                     <div className="d-grid gap-3 mt-4">
+                        <button className="btn btn-outline-dark fw-bold py-2" onClick={() => { setShowSuccessModal(false); setShowInvoice(true); }}>
+                            <i className="bi bi-file-earmark-text me-2"></i>View Bill & Print
+                        </button>
+                        <button className="btn btn-primary fw-bold py-2" onClick={() => setShowSuccessModal(false)}>
+                            <i className="bi bi-plus-lg me-2"></i>Start New Sale
+                        </button>
+                     </div>
+                 </div>
+              </div>
+           </div>
+        </div>
       )}
 
       {/* INVOICE PREVIEW */}

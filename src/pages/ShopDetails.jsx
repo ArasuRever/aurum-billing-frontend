@@ -13,7 +13,7 @@ function ShopDetails() {
   const [activeModal, setActiveModal] = useState(null); 
   const [formMode, setFormMode] = useState('ITEM'); 
   const [itemRows, setItemRows] = useState([]);
-  const [form, setForm] = useState({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '' });
+  const [form, setForm] = useState({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); // Added bulk_action
 
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedTxn, setSelectedTxn] = useState(null);
@@ -41,7 +41,7 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     setItemRows([{ type: 'GOLD', desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
-    setForm({ ...form, item_cash: '' });
+    setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); // Reset form
   };
 
   const handleRowChange = (index, field, value) => {
@@ -70,14 +70,26 @@ function ShopDetails() {
     try {
         let promises = [];
         let actionType = '';
-        if (activeModal === 'BORROW') actionType = formMode === 'ITEM' ? 'BORROW_ADD' : 'BORROW_REPAY';
-        else actionType = formMode === 'ITEM' ? 'LEND_ADD' : 'LEND_COLLECT';
+
+        // --- DETERMINE ACTION TYPE ---
+        if (formMode === 'ITEM') {
+             // Item Mode: Always ADDs new record (Borrow or Lend)
+             actionType = (activeModal === 'BORROW') ? 'BORROW_ADD' : 'LEND_ADD';
+        } else {
+             // Bulk Mode: User chooses ADD or REPAY
+             if (activeModal === 'BORROW') {
+                 actionType = (form.bulk_action === 'ADD') ? 'BORROW_ADD' : 'BORROW_REPAY';
+             } else {
+                 actionType = (form.bulk_action === 'ADD') ? 'LEND_ADD' : 'LEND_COLLECT';
+             }
+        }
 
         if (formMode === 'ITEM') {
             const validRows = itemRows.filter(r => r.gross);
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
+            // 1. ITEMS (Making Charges do NOT affect Ledger Cash)
             validRows.forEach(row => {
                 const gross = parseFloat(row.gross) || 0;
                 const wast = parseFloat(row.wast) || 0;
@@ -92,21 +104,30 @@ function ShopDetails() {
                     gross_weight: gross, wastage_percent: wast, making_charges: mcTotal,
                     pure_weight: row.type === 'GOLD' ? pure : 0,
                     silver_weight: row.type === 'SILVER' ? pure : 0,
-                    cash_amount: mcTotal
+                    cash_amount: mcTotal,
+                    transfer_cash: false // <--- KEY FIX: MC is Debt, not Physical Cash
                 };
                 promises.push(api.shopTransaction(payload));
             });
 
+            // 2. CASH LOAN (Affects Ledger Cash)
             if (manualCash > 0) {
                 promises.push(api.shopTransaction({
                     shop_id: id, action: actionType, description: "Cash Loan / Advance",
-                    gross_weight: 0, wastage_percent: 0, making_charges: 0, pure_weight: 0, silver_weight: 0, cash_amount: manualCash
+                    gross_weight: 0, wastage_percent: 0, making_charges: 0, pure_weight: 0, silver_weight: 0, 
+                    cash_amount: manualCash,
+                    transfer_cash: true // <--- Physical Cash Loan
                 }));
             }
         } else {
+            // BULK MODE (Usually Manual Adjustments or Settlements)
+            // If REPAY/COLLECT, it is physical cash. If ADD, it might be old debt.
+            // For simplicity, we assume Bulk Cash is Physical, unless description says "Opening Balance".
+            // But to be safe, let's assume it IS physical if cash is entered.
             promises.push(api.shopTransaction({
-                shop_id: id, action: actionType, description: form.description || 'Settlement',
-                pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash
+                shop_id: id, action: actionType, description: form.description || 'Manual Entry',
+                pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash,
+                transfer_cash: true // Default bulk cash to physical
             }));
         }
         await Promise.all(promises);
@@ -358,6 +379,21 @@ function ShopDetails() {
                 )}
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
+                    {/* NEW: ACTION SELECTOR */}
+                    <div className="mb-3 text-center">
+                        <label className="fw-bold me-3">Action Type:</label>
+                        <div className="form-check form-check-inline">
+                            <input className="form-check-input" type="radio" name="bulkAction" 
+                                checked={form.bulk_action === 'ADD'} onChange={() => setForm({...form, bulk_action: 'ADD'})} />
+                            <label className="form-check-label">{activeModal==='BORROW'?'Add Borrow (Increase Debt)':'Add Lend (Increase Credit)'}</label>
+                        </div>
+                        <div className="form-check form-check-inline">
+                            <input className="form-check-input" type="radio" name="bulkAction" 
+                                checked={form.bulk_action === 'REPAY'} onChange={() => setForm({...form, bulk_action: 'REPAY'})} />
+                            <label className="form-check-label">{activeModal==='BORROW'?'Repayment (Decrease Debt)':'Collection (Decrease Credit)'}</label>
+                        </div>
+                    </div>
+                    
                     <input className="form-control mb-2" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
                     <div className="row g-2">
                        <div className="col-4"><label>Gold (g)</label><input type="number" className="form-control" value={form.settle_gold} onChange={e => setForm({...form, settle_gold: e.target.value})} /></div>
@@ -375,6 +411,7 @@ function ShopDetails() {
         </div>
       )}
 
+      {/* Edit and Settle Modals unchanged... */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">
