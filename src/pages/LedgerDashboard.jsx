@@ -140,15 +140,31 @@ function LedgerDashboard() {
   };
 
   // --- UI HELPERS ---
+  // --- UI HELPERS ---
   const formatMoney = (val) => Number(val || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
   
   const filteredTxns = ledgerData.filter(txn => {
+      // 1. ALL TAB
       if (activeTab === 'ALL') return true;
-      if (activeTab === 'GOLD') return (parseFloat(txn.gold_weight) > 0 || txn.description.includes('GOLD'));
-      if (activeTab === 'SILVER') return (parseFloat(txn.silver_weight) > 0 || txn.description.includes('SILVER'));
+
+      // 2. GOLD TAB (Only show if Gold weight exists)
+      if (activeTab === 'GOLD') return parseFloat(txn.gold_weight) > 0;
+
+      // 3. SILVER TAB (Only show if Silver weight exists)
+      if (activeTab === 'SILVER') return parseFloat(txn.silver_weight) > 0;
+
+      // 4. CASH TAB (Strictly Cash)
       if (activeTab === 'CASH') return txn.payment_mode === 'CASH';
-      if (activeTab === 'BANK') return txn.payment_mode !== 'CASH';
+
+      // 5. BANK TAB (Strictly Online/Bank - EXCLUDE Stock)
+      // Fix: We must exclude 'STOCK' mode explicitly
+      if (activeTab === 'BANK') {
+          return txn.payment_mode !== 'CASH' && txn.payment_mode !== 'STOCK';
+      }
+
+      // 6. REFINERY TAB
       if (activeTab === 'REFINERY') return txn.type === 'REFINERY';
+
       return true;
   });
 
