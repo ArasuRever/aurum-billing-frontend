@@ -13,7 +13,7 @@ function ShopDetails() {
   const [activeModal, setActiveModal] = useState(null); 
   const [formMode, setFormMode] = useState('ITEM'); 
   const [itemRows, setItemRows] = useState([]);
-  const [form, setForm] = useState({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); // Added bulk_action
+  const [form, setForm] = useState({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' });
 
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedTxn, setSelectedTxn] = useState(null);
@@ -120,10 +120,7 @@ function ShopDetails() {
                 }));
             }
         } else {
-            // BULK MODE (Usually Manual Adjustments or Settlements)
-            // If REPAY/COLLECT, it is physical cash. If ADD, it might be old debt.
-            // For simplicity, we assume Bulk Cash is Physical, unless description says "Opening Balance".
-            // But to be safe, let's assume it IS physical if cash is entered.
+            // BULK MODE
             promises.push(api.shopTransaction({
                 shop_id: id, action: actionType, description: form.description || 'Manual Entry',
                 pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash,
@@ -132,7 +129,12 @@ function ShopDetails() {
         }
         await Promise.all(promises);
         alert('Saved!'); setActiveModal(null); loadData(); 
-    } catch (err) { alert('Error saving'); } finally { setLoading(false); }
+    } catch (err) { 
+        console.error(err);
+        alert('Error saving: ' + (err.response?.data?.error || err.message)); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   const handleDeleteTxn = async (txnId) => {
