@@ -1,25 +1,29 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api'; // You need to ensure api.js has corresponding methods
+import { api } from '../api'; 
+import { useNavigate } from 'react-router-dom'; // NEW IMPORT
 
 function LedgerDashboard() {
+  const navigate = useNavigate(); // NEW HOOK
+
   // --- STATE ---
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('ALL'); // ALL, GOLD, SILVER, CASH, BANK, REFINERY
+  const [activeTab, setActiveTab] = useState('ALL'); 
   
   // Data
   const [ledgerData, setLedgerData] = useState([]);
   const [dayStats, setDayStats] = useState({ 
-      opening: { cash: 0, bank: 0 }, // Future enhancement: Calculate strictly
+      opening: { cash: 0, bank: 0 }, 
       income: 0, expense: 0, 
       gold_in: 0, gold_out: 0, 
       silver_in: 0, silver_out: 0 
   });
   const [assets, setAssets] = useState({ cash_balance: 0, bank_balance: 0 });
+  const [oldMetalStats, setOldMetalStats] = useState(null); // NEW STATE
 
   // Refinery Modal State
   const [showRefineryModal, setShowRefineryModal] = useState(false);
-  const [refineryTab, setRefineryTab] = useState('SEND'); // SEND, RECEIVE, USE
+  const [refineryTab, setRefineryTab] = useState('SEND');
   
   // Refinery Data
   const [pendingScrap, setPendingScrap] = useState([]);
@@ -43,20 +47,23 @@ function LedgerDashboard() {
   const loadDashboard = async () => {
     setLoading(true);
     try {
-        // 1. Fetch Ledger Transactions for Date
-        // Note: You need to update api.js to accept date param: api.getLedgerHistory(term, date)
+        // 1. Fetch Ledger Transactions
         const histRes = await api.getLedgerHistory('', selectedDate); 
-        
         if (histRes.data) {
             setLedgerData(histRes.data.transactions || []);
             if(histRes.data.dayStats) setDayStats(histRes.data.dayStats);
         }
 
-        // 2. Fetch Assets (Live Balance)
+        // 2. Fetch Assets
         const statsRes = await api.getLedgerStats();
         if (statsRes.data && statsRes.data.assets) {
             setAssets(statsRes.data.assets);
         }
+
+        // 3. Fetch Old Metal Stats (NEW)
+        const oldStatsRes = await api.getOldMetalStats();
+        setOldMetalStats(oldStatsRes.data);
+
     } catch (err) {
         console.error("Load Error:", err);
     } finally {
@@ -66,7 +73,6 @@ function LedgerDashboard() {
 
   const loadRefineryData = async () => {
       try {
-          // You need to add these endpoints to api.js
           const pendingRes = await api.axiosInstance.get(`/refinery/pending-scrap?metal_type=${sendForm.metal}`);
           setPendingScrap(pendingRes.data);
 
@@ -78,9 +84,7 @@ function LedgerDashboard() {
       } catch (err) { console.error(err); }
   };
 
-  // --- HANDLERS ---
-  
-  // 1. Send to Refinery
+  // --- HANDLERS (Same as before) ---
   const handleSendScrap = async () => {
       try {
           await api.axiosInstance.post('/refinery/create-batch', {
@@ -90,11 +94,10 @@ function LedgerDashboard() {
           });
           alert("Batch Created & Sent!");
           loadRefineryData();
-          loadDashboard(); // Update ledger
+          loadDashboard(); 
       } catch(err) { alert(err.message); }
   };
 
-  // 2. Receive Refined
   const handleReceiveRefined = async () => {
       const formData = new FormData();
       formData.append('batch_id', receiveForm.batchId);
@@ -110,7 +113,6 @@ function LedgerDashboard() {
       } catch(err) { alert(err.message); }
   };
 
-  // 3. Use Stock
   const handleUseStock = async () => {
       try {
           await api.axiosInstance.post('/refinery/use-stock', {
@@ -125,7 +127,6 @@ function LedgerDashboard() {
       } catch(err) { alert(err.message); }
   };
 
-  // 4. Quick Manual Transaction
   const handleManualTxn = async () => {
       try {
           if (txnForm.type === 'INCOME') {
@@ -140,31 +141,15 @@ function LedgerDashboard() {
   };
 
   // --- UI HELPERS ---
-  // --- UI HELPERS ---
   const formatMoney = (val) => Number(val || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
   
   const filteredTxns = ledgerData.filter(txn => {
-      // 1. ALL TAB
       if (activeTab === 'ALL') return true;
-
-      // 2. GOLD TAB (Only show if Gold weight exists)
       if (activeTab === 'GOLD') return parseFloat(txn.gold_weight) > 0;
-
-      // 3. SILVER TAB (Only show if Silver weight exists)
       if (activeTab === 'SILVER') return parseFloat(txn.silver_weight) > 0;
-
-      // 4. CASH TAB (Strictly Cash)
       if (activeTab === 'CASH') return txn.payment_mode === 'CASH';
-
-      // 5. BANK TAB (Strictly Online/Bank - EXCLUDE Stock)
-      // Fix: We must exclude 'STOCK' mode explicitly
-      if (activeTab === 'BANK') {
-          return txn.payment_mode !== 'CASH' && txn.payment_mode !== 'STOCK';
-      }
-
-      // 6. REFINERY TAB
+      if (activeTab === 'BANK') return txn.payment_mode !== 'CASH' && txn.payment_mode !== 'STOCK';
       if (activeTab === 'REFINERY') return txn.type === 'REFINERY';
-
       return true;
   });
 
@@ -195,7 +180,7 @@ function LedgerDashboard() {
       {/* ASSETS SUMMARY (Top Cards) */}
       <div className="row g-3 mb-4">
           <div className="col-md-3">
-              <div className="card bg-success text-white shadow-sm">
+              <div className="card bg-success text-white shadow-sm h-100">
                   <div className="card-body">
                       <small className="opacity-75 fw-bold">CURRENT CASH</small>
                       <h3 className="fw-bold mb-0">{formatMoney(assets.cash_balance)}</h3>
@@ -203,7 +188,7 @@ function LedgerDashboard() {
               </div>
           </div>
           <div className="col-md-3">
-              <div className="card bg-primary text-white shadow-sm">
+              <div className="card bg-primary text-white shadow-sm h-100">
                   <div className="card-body">
                       <small className="opacity-75 fw-bold">CURRENT BANK</small>
                       <h3 className="fw-bold mb-0">{formatMoney(assets.bank_balance)}</h3>
@@ -226,6 +211,47 @@ function LedgerDashboard() {
                   </div>
               </div>
           </div>
+      </div>
+
+      {/* --- NEW SECTION: OLD METAL STATS --- */}
+      <div className="row g-3 mb-4">
+        <div className="col-12">
+            <h6 className="fw-bold text-secondary text-uppercase ls-1">Collected Scrap / Old Metal (Total)</h6>
+        </div>
+        <div className="col-md-6">
+            <div 
+                className="card bg-warning bg-opacity-10 border-warning text-dark shadow-sm cursor-pointer hover-shadow" 
+                onClick={() => navigate('/old-metal')}
+                style={{cursor: 'pointer'}}
+            >
+                <div className="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 className="fw-bold mb-0 text-warning text-opacity-75">OLD GOLD</h5>
+                        <small className="text-muted">Purchased + Exchanged</small>
+                    </div>
+                    <div className="text-end">
+                        <h3 className="fw-bold mb-0">{parseFloat(oldMetalStats?.gold_weight || 0).toFixed(3)} g</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div className="col-md-6">
+            <div 
+                className="card bg-secondary bg-opacity-10 border-secondary text-dark shadow-sm cursor-pointer hover-shadow" 
+                onClick={() => navigate('/old-metal')}
+                style={{cursor: 'pointer'}}
+            >
+                <div className="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 className="fw-bold mb-0 text-secondary">OLD SILVER</h5>
+                        <small className="text-muted">Purchased + Exchanged</small>
+                    </div>
+                    <div className="text-end">
+                        <h3 className="fw-bold mb-0">{parseFloat(oldMetalStats?.silver_weight || 0).toFixed(3)} g</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
       </div>
 
       {/* FILTERS */}
@@ -285,9 +311,7 @@ function LedgerDashboard() {
           </div>
       </div>
 
-      {/* --- MODALS --- */}
-
-      {/* REFINERY MODAL */}
+      {/* --- MODALS (Refinery, Txn, etc) kept same as original --- */}
       {showRefineryModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">

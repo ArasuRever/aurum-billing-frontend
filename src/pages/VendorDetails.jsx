@@ -2,6 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
+// Helper to convert File to Base64
+const toBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result.split(',')[1]); // remove data:image/jpeg;base64, header
+    reader.onerror = error => reject(error);
+});
+
 function VendorDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -15,7 +23,7 @@ function VendorDetails() {
 
   // UI Modes & Search
   const [viewMode, setViewMode] = useState('overview'); 
-  const [itemSearch, setItemSearch] = useState(''); // NEW: Search State
+  const [itemSearch, setItemSearch] = useState('');
   
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -32,6 +40,7 @@ function VendorDetails() {
 
   // Stock Form
   const [stockRows, setStockRows] = useState([]);
+  const [batchInvoice, setBatchInvoice] = useState(''); // NEW STATE
 
   useEffect(() => { loadAllData(); }, [id]);
 
@@ -108,6 +117,7 @@ function VendorDetails() {
   const initStockForm = () => {
     fetchMasterItems();
     setStockRows([{ metal_type: getDefaultMetal(), stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+    setBatchInvoice('');
     setViewMode('add_stock'); setPurityMode('TOUCH');
   };
 
@@ -149,20 +159,51 @@ function VendorDetails() {
 
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
   
+  // NEW: Updated Submit Logic for Batching
   const handleSubmitStock = async () => {
     const validRows = stockRows.filter(r => r.item_name && r.gross_weight);
     if (validRows.length === 0) return alert("Fill at least one row");
+
+    // Group rows by Metal Type
+    const grouped = {};
+    validRows.forEach(row => {
+        if(!grouped[row.metal_type]) grouped[row.metal_type] = [];
+        grouped[row.metal_type].push(row);
+    });
+
     try {
-      for (const row of validRows) {
-        const formData = new FormData();
-        formData.append('vendor_id', id); formData.append('metal_type', row.metal_type); formData.append('stock_type', row.stock_type);
-        formData.append('item_name', row.item_name); formData.append('gross_weight', row.gross_weight); formData.append('wastage_percent', row.wastage_percent);
-        formData.append('making_charges', row.making_charges); formData.append('huid', row.huid || ''); formData.append('pure_weight', row.calc_total_pure);
-        if (row.item_image) formData.append('item_image', row.item_image);
-        await api.addInventory(formData); 
+      for (const metal of Object.keys(grouped)) {
+          const itemsToProcess = grouped[metal];
+          
+          // Process images to Base64 async
+          const processedItems = await Promise.all(itemsToProcess.map(async (item) => {
+              let b64 = null;
+              if (item.item_image && item.item_image instanceof File) {
+                  b64 = await toBase64(item.item_image);
+              }
+              return {
+                  ...item,
+                  pure_weight: item.calc_total_pure, // Send frontend calculated pure
+                  item_image_base64: b64 // Send image as Base64 string
+              };
+          }));
+
+          // Send Batch
+          await api.addBatchInventory({
+              vendor_id: id,
+              metal_type: metal,
+              invoice_no: batchInvoice,
+              items: processedItems
+          });
       }
-      alert('Stock Added'); setViewMode('overview'); loadAllData();
-    } catch(err) { alert('Error adding stock'); }
+
+      alert('Stock Added Successfully!'); 
+      setViewMode('overview'); 
+      loadAllData();
+    } catch(err) { 
+        console.error(err);
+        alert('Error adding stock: ' + err.message); 
+    }
   };
 
   const handleDeleteItem = async (itemId) => { if(window.confirm("Delete item? Reduces balance.")) { await api.deleteInventory(itemId); loadAllData(); }};
@@ -199,7 +240,11 @@ function VendorDetails() {
 
       {viewMode === 'add_stock' && (
         <div className="card shadow-sm border-0 mb-4">
-          <div className="card-header bg-primary text-white"><h5 className="mb-0">Add Stock</h5></div>
+          <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+              <h5 className="mb-0">Add Stock</h5>
+              {/* INVOICE INPUT */}
+              <input type="text" className="form-control form-control-sm w-auto text-uppercase" placeholder="Invoice / Ref No" value={batchInvoice} onChange={e => setBatchInvoice(e.target.value)} />
+          </div>
           <div className="table-responsive">
             <table className="table table-bordered mb-0 align-middle">
               <thead className="table-light text-center small">
@@ -227,7 +272,7 @@ function VendorDetails() {
           </div>
           <div className="card-footer bg-white d-flex justify-content-between align-items-center">
             <button className="btn btn-outline-primary btn-sm" onClick={handleAddRow}>+ Row</button>
-            <button className="btn btn-success fw-bold px-4" onClick={handleSubmitStock}>Save Stock</button>
+            <button className="btn btn-success fw-bold px-4" onClick={handleSubmitStock}>Save Batch Stock</button>
           </div>
         </div>
       )}
