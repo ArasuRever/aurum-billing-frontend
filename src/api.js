@@ -90,6 +90,17 @@ export const api = {
   addOldMetalPurchase: (data) => axios.post(`${API_URL}/old-metal/purchase`, data),
   deleteOldMetal: (id) => axios.delete(`${API_URL}/old-metal/${id}`),
   
-  // --- REFINERY ---
+  // --- REFINERY (NEW & UPDATED) ---
   getRefineryBatches: () => axios.get(`${API_URL}/refinery/batches`),
+  
+  getPendingScrap: (metalType) => axios.get(`${API_URL}/refinery/pending-scrap?metal_type=${metalType}`),
+  
+  createRefineryBatch: (data) => axios.post(`${API_URL}/refinery/create-batch`, data),
+  
+  // Handles file upload
+  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  
+  useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 };

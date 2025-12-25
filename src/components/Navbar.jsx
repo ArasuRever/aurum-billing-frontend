@@ -17,12 +17,15 @@ function Navbar() {
         <div className="collapse navbar-collapse" id="navbarNav">
           <ul className="navbar-nav ms-auto">
             <li className="nav-item"><Link className={`nav-link ${isActive('/billing')}`} to="/billing">Billing</Link></li>
-            {/* NEW HISTORY TAB */}
+            
             <li className="nav-item"><Link className={`nav-link ${isActive('/bill-history')}`} to="/bill-history">History</Link></li>
             
             <li className="nav-item"><Link className={`nav-link ${isActive('/ledger')}`} to="/ledger">Ledger</Link></li>
             
             <li className="nav-item"><Link className={`nav-link ${isActive('/old-metal')}`} to="/old-metal">Scrap/Old</Link></li>
+
+            {/* --- NEW REFINERY LINK --- */}
+            <li className="nav-item"><Link className={`nav-link ${isActive('/refinery')}`} to="/refinery">Refinery</Link></li>
 
             <li className="nav-item"><Link className={`nav-link ${isActive('/inventory')}`} to="/inventory">Inventory</Link></li>
             <li className="nav-item"><Link className={`nav-link ${isActive('/vendors')}`} to="/">Vendors</Link></li>

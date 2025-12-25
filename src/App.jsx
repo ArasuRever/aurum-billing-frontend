@@ -16,8 +16,10 @@ import BillHistory from './pages/BillHistory';
 import SalesReturn from './pages/SalesReturn';
 
 import LedgerDashboard from './pages/LedgerDashboard';
-// --- NEW IMPORT ---
 import OldMetalPage from './pages/OldMetalPage';
+
+// --- NEW IMPORT ---
+import RefineryManager from './pages/RefineryManager';
 
 function App() {
   return (
@@ -45,6 +47,9 @@ function App() {
 
             {/* OLD METAL SECTION */}
             <Route path="/old-metal" element={<OldMetalPage />} />
+            
+            {/* --- REFINERY SECTION --- */}
+            <Route path="/refinery" element={<RefineryManager />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
