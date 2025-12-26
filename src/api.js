@@ -6,9 +6,6 @@ const axiosInstance = axios.create({ baseURL: API_URL });
 export const api = {
   axiosInstance,
 
-  // ... (Keep existing methods: VENDORS, INVENTORY, BILLING, SHOPS, CUSTOMERS) ...
-  // [PASTE EXISTING METHODS HERE]
-  
   // --- VENDORS ---
   addVendor: (data) => axios.post(`${API_URL}/vendors/add`, data),
   searchVendor: (q) => axios.get(`${API_URL}/vendors/search?q=${q}`),
@@ -63,7 +60,7 @@ export const api = {
   restoreCustomer: (id) => axios.put(`${API_URL}/customers/restore/${id}`),
   permanentDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/permanent/${id}`),
 
-  // --- SETTINGS (UPDATED) ---
+  // --- SETTINGS ---
   getDailyRates: () => axios.get(`${API_URL}/settings/rates`),
   updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data),
   getProductTypes: () => axios.get(`${API_URL}/settings/types`),
@@ -75,7 +72,7 @@ export const api = {
   updateMasterItem: (id, data) => axios.put(`${API_URL}/settings/items/${id}`, data), 
   deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
 
-  // NEW: BUSINESS SETTINGS
+  // --- BUSINESS SETTINGS ---
   getBusinessSettings: () => axios.get(`${API_URL}/settings/business`),
   saveBusinessSettings: (formData) => axios.post(`${API_URL}/settings/business`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
@@ -100,6 +97,7 @@ export const api = {
   receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
+  useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 
   // --- EXTERNAL GST BILLING ---
   getGstHistory: () => axios.get(`${API_URL}/gst/history`),
@@ -107,6 +105,4 @@ export const api = {
   createGstBill: (data) => axios.post(`${API_URL}/gst/create`, data),
   updateGstBill: (id, data) => axios.put(`${API_URL}/gst/update/${id}`, data),
   deleteGstBill: (id) => axios.delete(`${API_URL}/gst/${id}`),
-  
-  useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 };
