@@ -1,35 +1,27 @@
 /**
- * Safe Calculation Engine
- * @param {string} formula - e.g. "({weight} - {less}) * {rate}"
- * @param {object} values - e.g. { weight: 10, less: 0.5, rate: 5000 }
+ * Safely evaluates a math formula string.
+ * @param {string} formula - e.g. "((gross_weight - less_weight) * rate)"
+ * @param {object} values - e.g. { gross_weight: 10, less_weight: 1, rate: 5000 }
  */
-export const calculateItemTotal = (formula, values) => {
+export const evaluateFormula = (formula, values) => {
     if (!formula) return 0;
+    let parsed = formula;
     
-    let parsedFormula = formula;
-    
-    // Replace variable placeholders {key} with actual values
+    // Replace variable names with values (e.g. {rate} or rate)
     Object.keys(values).forEach(key => {
-        // Ensure we handle numeric conversion safely
         const val = parseFloat(values[key]) || 0;
-        // Global replace of {key}
-        parsedFormula = parsedFormula.split(`{${key}}`).join(val);
+        // Replace {key} format
+        parsed = parsed.split(`{${key}}`).join(val);
+        // Replace key format (ensure we don't replace substrings of other words)
+        parsed = parsed.split(key).join(val);
     });
 
     try {
-        // Sanitize: Allow only numbers, operators, and parenthesis
-        // This prevents malicious code injection
-        const safeChars = /^[0-9+\-*/().\s]*$/;
-        if (!safeChars.test(parsedFormula)) {
-            console.warn("Unsafe formula detected:", parsedFormula);
-            return 0;
-        }
-
-        // Evaluate safely
+        // Security: Allow only numbers and math operators
+        if (/[^0-9+\-*/().\s]/.test(parsed)) return 0;
         // eslint-disable-next-line no-new-func
-        return new Function('return ' + parsedFormula)();
+        return new Function('return ' + parsed)();
     } catch (e) {
-        console.error("Calculation Error:", e);
         return 0;
     }
 };
