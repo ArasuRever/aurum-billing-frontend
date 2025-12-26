@@ -6,13 +6,14 @@ const axiosInstance = axios.create({ baseURL: API_URL });
 export const api = {
   axiosInstance,
 
+  // ... (Keep existing methods: VENDORS, INVENTORY, BILLING, SHOPS, CUSTOMERS) ...
+  // [PASTE EXISTING METHODS HERE]
+  
   // --- VENDORS ---
   addVendor: (data) => axios.post(`${API_URL}/vendors/add`, data),
   searchVendor: (q) => axios.get(`${API_URL}/vendors/search?q=${q}`),
   updateVendor: (id, data) => axios.put(`${API_URL}/vendors/${id}`, data),
   getVendors: () => axios.get(`${API_URL}/vendors/list`),
-  
-  // Agents
   addAgent: (formData) => axios.post(`${API_URL}/vendors/add-agent`, formData),
   getVendorAgents: (id) => axios.get(`${API_URL}/vendors/${id}/agents`),
   updateAgent: (id, formData) => axios.put(`${API_URL}/vendors/agent/${id}`, formData),
@@ -65,18 +66,20 @@ export const api = {
   // --- SETTINGS (UPDATED) ---
   getDailyRates: () => axios.get(`${API_URL}/settings/rates`),
   updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data),
-  
-  // NEW: Dynamic Product Types (Tabs)
   getProductTypes: () => axios.get(`${API_URL}/settings/types`),
   addProductType: (data) => axios.post(`${API_URL}/settings/types`, data),
   updateProductType: (id, data) => axios.put(`${API_URL}/settings/types/${id}`, data),
   deleteProductType: (id) => axios.delete(`${API_URL}/settings/types/${id}`),
-
-  // Existing Master Items
   getMasterItems: () => axios.get(`${API_URL}/settings/items`),
   addMasterItemsBulk: (data) => axios.post(`${API_URL}/settings/items/bulk`, data), 
   updateMasterItem: (id, data) => axios.put(`${API_URL}/settings/items/${id}`, data), 
   deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
+
+  // NEW: BUSINESS SETTINGS
+  getBusinessSettings: () => axios.get(`${API_URL}/settings/business`),
+  saveBusinessSettings: (formData) => axios.post(`${API_URL}/settings/business`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
 
   // --- LEDGER ---
   getLedgerStats: () => axios.get(`${API_URL}/ledger/stats`),
@@ -90,13 +93,20 @@ export const api = {
   addOldMetalPurchase: (data) => axios.post(`${API_URL}/old-metal/purchase`, data),
   deleteOldMetal: (id) => axios.delete(`${API_URL}/old-metal/${id}`),
   
-  // --- REFINERY (NEW) ---
+  // --- REFINERY ---
   getRefineryBatches: () => axios.get(`${API_URL}/refinery/batches`),
   getPendingScrap: (metalType) => axios.get(`${API_URL}/refinery/pending-scrap?metal_type=${metalType}`),
   createRefineryBatch: (data) => axios.post(`${API_URL}/refinery/create-batch`, data),
-  // Note: This one handles file upload, so we don't set headers manually here usually, but keeping strict for safety
   receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
+
+  // --- EXTERNAL GST BILLING ---
+  getGstHistory: () => axios.get(`${API_URL}/gst/history`),
+  getGstBill: (id) => axios.get(`${API_URL}/gst/${id}`),
+  createGstBill: (data) => axios.post(`${API_URL}/gst/create`, data),
+  updateGstBill: (id, data) => axios.put(`${API_URL}/gst/update/${id}`, data),
+  deleteGstBill: (id) => axios.delete(`${API_URL}/gst/${id}`),
+  
   useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 };

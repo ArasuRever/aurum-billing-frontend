@@ -14,12 +14,11 @@ import CustomerDetails from './pages/CustomerDetails';
 import SettingsPage from './pages/SettingsPage';
 import BillHistory from './pages/BillHistory';
 import SalesReturn from './pages/SalesReturn';
-
 import LedgerDashboard from './pages/LedgerDashboard';
 import OldMetalPage from './pages/OldMetalPage';
-
-// --- NEW IMPORT ---
 import RefineryManager from './pages/RefineryManager';
+import BulkStockEntry from './pages/BulkStockEntry';
+import ExternalGST from './pages/ExternalGST';
 
 function App() {
   return (
@@ -28,27 +27,31 @@ function App() {
         <Navbar />
         <div className="container-fluid px-4">
           <Routes>
-            <Route path="/" element={<VendorManager />} />
+            {/* 1. LANDING PAGE IS NOW BILLING */}
+            <Route path="/" element={<Billing />} />
+            <Route path="/gst-filing" element={<ExternalGST />} />
+
+            {/* 2. MOVED VENDORS TO SPECIFIC ROUTE */}
+            <Route path="/vendors" element={<VendorManager />} />
             <Route path="/vendors/:id" element={<VendorDetails />} />
+            
             <Route path="/shops" element={<ShopManager />} />
             <Route path="/shops/:id" element={<ShopDetails />} />
+            
             <Route path="/inventory" element={<InventoryManager />} />
+            <Route path="/add-stock" element={<BulkStockEntry />} />
+
             <Route path="/customers" element={<CustomerManager />} />
             <Route path="/customers/:phone" element={<CustomerDetails />} />
             <Route path="/settings" element={<SettingsPage />} />
             
-            {/* BILLING SECTION */}
+            {/* KEEPING /billing AS ALIAS OR DIRECT LINK */}
             <Route path="/billing" element={<Billing />} />
             <Route path="/bill-history" element={<BillHistory />} />
             <Route path="/billing/return" element={<SalesReturn />} />
             
-            {/* LEDGER SECTION */}
             <Route path="/ledger" element={<LedgerDashboard />} />
-
-            {/* OLD METAL SECTION */}
             <Route path="/old-metal" element={<OldMetalPage />} />
-            
-            {/* --- REFINERY SECTION --- */}
             <Route path="/refinery" element={<RefineryManager />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

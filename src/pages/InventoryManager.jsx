@@ -3,16 +3,16 @@ import { api } from '../api';
 
 function InventoryManager() {
   const [items, setItems] = useState([]);
-  const [filterVendor, setFilterVendor] = useState('');
+  const [filterMode, setFilterMode] = useState(''); // ''=ALL, 'OWN'=Shop Stock, Number=VendorID
   const [vendors, setVendors] = useState([]);
   
   // Batch Add Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [batchForm, setBatchForm] = useState({
-      vendor_id: '',
+      vendor_id: '', // can be 'OWN' or a vendor ID
       metal_type: 'GOLD',
       invoice_no: '',
-      items: [] // List of items to add
+      items: [] 
   });
   // Temp state for single item input in the batch
   const [tempItem, setTempItem] = useState({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '' });
@@ -49,27 +49,49 @@ function InventoryManager() {
   };
 
   const submitBatch = async () => {
-      if(!batchForm.vendor_id || !batchForm.invoice_no) return alert("Select Vendor and Invoice No");
+      // Validation: vendor_id must be selected (either specific ID or 'OWN')
+      if(!batchForm.vendor_id) return alert("Select Vendor or 'Shop Stock'");
+      // Invoice is optional for Own Stock, required for Vendor
+      if(batchForm.vendor_id !== 'OWN' && !batchForm.invoice_no) return alert("Invoice No is required for Vendor Stock");
+      
       if(batchForm.items.length === 0) return alert("Add at least one item");
       
       try {
-          await api.addBatchInventory({
-              vendor_id: batchForm.vendor_id,
+          // Prepare Payload
+          const payload = {
+              vendor_id: batchForm.vendor_id === 'OWN' ? null : batchForm.vendor_id, // Send null for Own Stock
               metal_type: batchForm.metal_type,
-              invoice_no: batchForm.invoice_no,
+              invoice_no: batchForm.invoice_no || 'OWN-STOCK',
               items: batchForm.items
-          });
-          alert("Stock Batch Added Successfully!");
+          };
+
+          await api.addBatchInventory(payload);
+          
+          alert("Stock Added Successfully!");
           setShowAddModal(false);
           setBatchForm({ vendor_id: '', metal_type: 'GOLD', invoice_no: '', items: [] });
           fetchData();
       } catch(err) { alert(err.message); }
   };
 
-  const filteredItems = filterVendor ? items.filter(i => i.vendor_id === parseInt(filterVendor)) : items;
+  // --- FILTER LOGIC ---
+  const filteredItems = items.filter(i => {
+      if (filterMode === '') return true; // All
+      if (filterMode === 'OWN') return i.source_type === 'OWN'; // Shop Owned
+      return i.vendor_id === parseInt(filterMode); // Specific Vendor
+  });
 
   const totalGold = filteredItems.filter(i => i.metal_type === 'GOLD').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
   const totalSilver = filteredItems.filter(i => i.metal_type === 'SILVER').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
+
+  // Helper to get Source Label
+  const getSourceLabel = (item) => {
+      if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
+      if (item.source_type === 'NEIGHBOUR') return <span className="badge bg-info text-dark">NEIGHBOUR</span>;
+      // Vendor
+      const vName = vendors.find(v => v.id === item.vendor_id)?.business_name || 'Unknown Vendor';
+      return <span className="text-muted small">{vName}</span>;
+  };
 
   return (
     <div className="container-fluid">
@@ -80,10 +102,13 @@ function InventoryManager() {
         
         <div className="col-md-6 d-flex align-items-end justify-content-end gap-2">
            <div>
-               <label className="small fw-bold text-muted">Filter Vendor</label>
-               <select className="form-select" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-                  <option value="">All Vendors</option>
-                  {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+               <label className="small fw-bold text-muted">Filter Source</label>
+               <select className="form-select" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
+                  <option value="">All Inventory</option>
+                  <option value="OWN" className="fw-bold">✦ Shop / Own Stock</option>
+                  <optgroup label="Vendors">
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                  </optgroup>
                </select>
            </div>
            <button className="btn btn-primary fw-bold" onClick={() => setShowAddModal(true)}>
@@ -97,7 +122,7 @@ function InventoryManager() {
         <div className="card-header bg-white py-3"><h5 className="mb-0 fw-bold text-primary">Available Inventory</h5></div>
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
-            <thead className="table-light"><tr><th>Item</th><th>Barcode</th><th>Metal</th><th>Weight</th><th>Wastage</th><th>Vendor</th></tr></thead>
+            <thead className="table-light"><tr><th>Item</th><th>Barcode</th><th>Metal</th><th>Weight</th><th>Wastage</th><th>Source</th></tr></thead>
             <tbody>
               {filteredItems.map(item => (
                 <tr key={item.id}>
@@ -106,9 +131,10 @@ function InventoryManager() {
                   <td><span className={`badge ${item.metal_type === 'GOLD' ? 'bg-warning text-dark' : 'bg-secondary'}`}>{item.metal_type}</span></td>
                   <td className="fw-bold">{item.gross_weight}g</td>
                   <td>{item.wastage_percent}%</td>
-                  <td className="small text-muted">{vendors.find(v => v.id === item.vendor_id)?.business_name || '-'}</td>
+                  <td>{getSourceLabel(item)}</td>
                 </tr>
               ))}
+              {filteredItems.length === 0 && <tr><td colSpan="6" className="text-center py-4 text-muted">No items found matching filter.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -127,10 +153,14 @@ function InventoryManager() {
                           {/* Header Inputs */}
                           <div className="row g-3 mb-4">
                               <div className="col-md-4">
-                                  <label className="small fw-bold">Vendor</label>
+                                  <label className="small fw-bold">Source</label>
                                   <select className="form-select" value={batchForm.vendor_id} onChange={e => setBatchForm({...batchForm, vendor_id: e.target.value})}>
-                                      <option value="">Select Vendor</option>
-                                      {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                                      <option value="">Select Source</option>
+                                      {/* NEW: OWN STOCK OPTION */}
+                                      <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
+                                      <optgroup label="Vendors">
+                                          {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                                      </optgroup>
                                   </select>
                               </div>
                               <div className="col-md-4">
@@ -141,7 +171,11 @@ function InventoryManager() {
                               </div>
                               <div className="col-md-4">
                                   <label className="small fw-bold">Invoice / Ref No</label>
-                                  <input className="form-control" value={batchForm.invoice_no} onChange={e => setBatchForm({...batchForm, invoice_no: e.target.value})} />
+                                  <input className="form-control" 
+                                    placeholder={batchForm.vendor_id === 'OWN' ? "Optional" : "Required"}
+                                    value={batchForm.invoice_no} 
+                                    onChange={e => setBatchForm({...batchForm, invoice_no: e.target.value})} 
+                                  />
                               </div>
                           </div>
 

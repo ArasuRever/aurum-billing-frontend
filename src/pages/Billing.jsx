@@ -15,6 +15,7 @@ const printStyles = `
 function Billing() {
   const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 });
   const [masterItems, setMasterItems] = useState([]); 
+  const [businessProfile, setBusinessProfile] = useState(null); // NEW: Business Profile State
   
   // --- CUSTOMER STATE ---
   const [customerSearch, setCustomerSearch] = useState('');
@@ -60,11 +61,15 @@ function Billing() {
     styleSheet.innerText = printStyles;
     document.head.appendChild(styleSheet);
     
+    // Load Initial Data
     api.getShops().then(res => setShops(res.data)).catch(console.error);
     api.getDailyRates().then(res => {
         if(res.data) setRates(prev => ({ ...prev, ...res.data }));
     }).catch(console.error);
     api.getMasterItems().then(res => setMasterItems(res.data)).catch(console.error);
+
+    // NEW: Load Business Settings for Invoice
+    api.getBusinessSettings().then(res => setBusinessProfile(res.data)).catch(console.error);
 
     return () => document.head.removeChild(styleSheet);
   }, []);
@@ -658,13 +663,15 @@ function Billing() {
         </div>
       )}
 
-      {/* INVOICE PREVIEW */}
+      {/* INVOICE PREVIEW - UPDATED: Passes businessProfile to InvoiceTemplate */}
       {showInvoice && lastBill && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1050}}>
            <div className="modal-dialog modal-lg">
               <div className="modal-content" style={{height: '90vh'}}>
                  <div className="modal-header bg-dark text-white"><h5 className="modal-title">Invoice Preview</h5><button className="btn-close btn-close-white" onClick={() => setShowInvoice(false)}></button></div>
-                 <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10"><InvoiceTemplate data={lastBill} /></div>
+                 <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10">
+                    <InvoiceTemplate data={lastBill} businessProfile={businessProfile} />
+                 </div>
                  <div className="modal-footer bg-light"><button className="btn btn-secondary" onClick={() => setShowInvoice(false)}>Close</button><button className="btn btn-primary fw-bold" onClick={() => window.print()}><i className="bi bi-printer me-2"></i>PRINT INVOICE</button></div>
               </div>
            </div>

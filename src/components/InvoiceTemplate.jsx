@@ -1,15 +1,38 @@
 import React from 'react';
 
-const InvoiceTemplate = ({ data }) => {
+const InvoiceTemplate = ({ data, businessProfile }) => {
   if (!data) return null;
   const { customer, items, totals, invoice_id, date, includeGST, exchangeItems } = data;
 
+  // Defaults if no profile set
+  const bizName = businessProfile?.business_name || 'SRI KUBERALAKSHMI BANKERS';
+  const bizAddr = businessProfile?.address || '123, Gold Market Street, Salem - 636001';
+  const bizPhone = businessProfile?.contact_number || '9876543210';
+  const displayPref = businessProfile?.display_preference || 'BOTH'; 
+  const logoUrl = businessProfile?.logo;
+
   return (
     <div id="printable-invoice" className="bg-white p-4 mx-auto" style={{maxWidth: '800px', width: '100%', minHeight: '100%'}}>
-       <div className="text-center mb-4">
-          <h3 className="fw-bold m-0">SRI KUBERALAKSHMI BANKERS</h3>
-          <div className="small">123, Gold Market Street, Salem - 636001</div>
-          <div className="small">Phone: 9876543210</div>
+       
+       {/* DYNAMIC HEADER */}
+       <div className="text-center mb-4 border-bottom pb-3">
+          {/* Logo */}
+          {(displayPref === 'LOGO' || displayPref === 'BOTH') && logoUrl && (
+              <img src={logoUrl} alt="Logo" style={{maxHeight: '80px', maxWidth: '100%', marginBottom: '10px'}} />
+          )}
+          
+          {/* Name & Details */}
+          {(displayPref === 'NAME' || displayPref === 'BOTH') && (
+              <>
+                <h3 className="fw-bold m-0 text-uppercase">{bizName}</h3>
+                <div className="small" style={{whiteSpace: 'pre-line'}}>{bizAddr}</div>
+                <div className="small fw-bold mt-1">
+                    Phone: {bizPhone} 
+                    {businessProfile?.license_number && <span> | Lic: {businessProfile.license_number}</span>}
+                    {businessProfile?.email && <span> | {businessProfile.email}</span>}
+                </div>
+              </>
+          )}
        </div>
        
        <div className="d-flex justify-content-between mb-3 border-bottom pb-2">
