@@ -8,7 +8,8 @@ function ShopDetails() {
   const [shop, setShop] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+  const [productTypes, setProductTypes] = useState([]); // NEW
+
   // States
   const [activeModal, setActiveModal] = useState(null); 
   const [formMode, setFormMode] = useState('ITEM'); 
@@ -28,9 +29,13 @@ function ShopDetails() {
 
   const loadData = async () => {
     try { 
-        const res = await api.getShopDetails(id); 
+        const [res, typeRes] = await Promise.all([
+             api.getShopDetails(id),
+             api.getProductTypes()
+        ]);
         setShop(res.data.shop); 
         setTransactions(res.data.transactions); 
+        setProductTypes(typeRes.data || []);
     } catch (err) { console.error(err); }
   };
 
@@ -40,8 +45,9 @@ function ShopDetails() {
   const initModal = (type) => {
     setActiveModal(type);
     setFormMode('ITEM');
-    setItemRows([{ type: 'GOLD', desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
-    setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); // Reset form
+    const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
+    setItemRows([{ type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
+    setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
   const handleRowChange = (index, field, value) => {
@@ -61,7 +67,11 @@ function ShopDetails() {
     setItemRows(newRows);
   };
 
-  const addRow = () => setItemRows([...itemRows, { type: 'GOLD', desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
+  const addRow = () => {
+    const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
+    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
+  };
+  
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
 
   const handleMainSubmit = async () => {
@@ -71,12 +81,9 @@ function ShopDetails() {
         let promises = [];
         let actionType = '';
 
-        // --- DETERMINE ACTION TYPE ---
         if (formMode === 'ITEM') {
-             // Item Mode: Always ADDs new record (Borrow or Lend)
              actionType = (activeModal === 'BORROW') ? 'BORROW_ADD' : 'LEND_ADD';
         } else {
-             // Bulk Mode: User chooses ADD or REPAY
              if (activeModal === 'BORROW') {
                  actionType = (form.bulk_action === 'ADD') ? 'BORROW_ADD' : 'BORROW_REPAY';
              } else {
@@ -89,7 +96,6 @@ function ShopDetails() {
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
-            // 1. ITEMS (Making Charges do NOT affect Ledger Cash)
             validRows.forEach(row => {
                 const gross = parseFloat(row.gross) || 0;
                 const wast = parseFloat(row.wast) || 0;
@@ -99,24 +105,28 @@ function ShopDetails() {
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
                 if(row.mc_rate) details += `, MC: ${row.mc_rate}/g`;
                 
+                // Map custom types: 'SILVER' goes to silver_weight, everything else (Gold, Platinum, etc.) goes to pure_weight (Gold) col for now
+                // NOTE: If you need separate columns for Platinum in Shop Ledger, schema update is needed. 
+                // For now, we treat non-Silver as Gold-equivalent in the 'pure_weight' column.
+                const isSilver = row.type === 'SILVER';
+                
                 const payload = {
-                    shop_id: id, action: actionType, description: `${row.desc || 'Item'} (${details})`,
+                    shop_id: id, action: actionType, description: `${row.desc || row.type} (${details})`,
                     gross_weight: gross, wastage_percent: wast, making_charges: mcTotal,
-                    pure_weight: row.type === 'GOLD' ? pure : 0,
-                    silver_weight: row.type === 'SILVER' ? pure : 0,
+                    pure_weight: !isSilver ? pure : 0,
+                    silver_weight: isSilver ? pure : 0,
                     cash_amount: mcTotal,
-                    transfer_cash: false // <--- KEY FIX: MC is Debt, not Physical Cash
+                    transfer_cash: false 
                 };
                 promises.push(api.shopTransaction(payload));
             });
 
-            // 2. CASH LOAN (Affects Ledger Cash)
             if (manualCash > 0) {
                 promises.push(api.shopTransaction({
                     shop_id: id, action: actionType, description: "Cash Loan / Advance",
                     gross_weight: 0, wastage_percent: 0, making_charges: 0, pure_weight: 0, silver_weight: 0, 
                     cash_amount: manualCash,
-                    transfer_cash: true // <--- Physical Cash Loan
+                    transfer_cash: true 
                 }));
             }
         } else {
@@ -124,7 +134,7 @@ function ShopDetails() {
             promises.push(api.shopTransaction({
                 shop_id: id, action: actionType, description: form.description || 'Manual Entry',
                 pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash,
-                transfer_cash: true // Default bulk cash to physical
+                transfer_cash: true 
             }));
         }
         await Promise.all(promises);
@@ -161,7 +171,16 @@ function ShopDetails() {
   };
 
   const handleEditSubmit = async () => {
-    const payload = { description: editForm.description, gross_weight: editForm.gross, wastage_percent: editForm.wastage, making_charges: editForm.mc_total, pure_weight: editForm.type === 'GOLD' ? editForm.pure : 0, silver_weight: editForm.type === 'SILVER' ? editForm.pure : 0, cash_amount: editForm.total_cash };
+    const isSilver = editForm.type === 'SILVER';
+    const payload = { 
+        description: editForm.description, 
+        gross_weight: editForm.gross, 
+        wastage_percent: editForm.wastage, 
+        making_charges: editForm.mc_total, 
+        pure_weight: !isSilver ? editForm.pure : 0, 
+        silver_weight: isSilver ? editForm.pure : 0, 
+        cash_amount: editForm.total_cash 
+    };
     try { await api.updateShopTransaction(editForm.id, payload); alert('Updated!'); setEditModalOpen(false); loadData(); } catch (err) { alert('Update Failed'); }
   };
 
@@ -181,7 +200,6 @@ function ShopDetails() {
 
   if (!shop) return <div>Loading...</div>;
 
-  // --- DYNAMIC TALLY HELPER ---
   const renderTallyCard = (label, value, unit) => {
       const val = parseFloat(value) || 0;
       let statusColor = 'text-muted';
@@ -223,7 +241,6 @@ function ShopDetails() {
         <h3 className="fw-bold">{shop.shop_name} ({shop.person_name})</h3>
       </div>
 
-      {/* --- DYNAMIC NET TALLY --- */}
       <div className="row text-center mb-4 g-3">
          {renderTallyCard('Net Gold', shop.balance_gold, 'g')}
          {renderTallyCard('Net Silver', shop.balance_silver, 'g')}
@@ -231,7 +248,6 @@ function ShopDetails() {
       </div>
 
       <div className="row g-4">
-        {/* LEFT: BORROWED */}
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
           <div className="table-responsive bg-light rounded" style={{maxHeight:'50vh'}}>
@@ -262,7 +278,6 @@ function ShopDetails() {
           </div>
         </div>
 
-        {/* RIGHT: LENT */}
         <div className="col-md-6">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-success fw-bold">Lent (They Owe)</h5><button className="btn btn-success btn-sm" onClick={() => initModal('LEND')}>+ New Lend</button></div>
           <div className="table-responsive bg-light rounded" style={{maxHeight:'50vh'}}>
@@ -294,7 +309,6 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* --- HISTORY SECTION --- */}
       <div className="card mt-4 shadow-sm">
         <div className="card-header bg-dark text-white fw-bold">Transaction History (Combined)</div>
         <div className="table-responsive" style={{maxHeight:'400px'}}>
@@ -320,7 +334,6 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* [MODALS START HERE] */}
       {activeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-xl">
@@ -350,7 +363,12 @@ function ShopDetails() {
                       <tbody>
                         {itemRows.map((row, i) => (
                           <tr key={i}>
-                            <td><select className="form-select form-select-sm" value={row.type} onChange={e => handleRowChange(i, 'type', e.target.value)}><option value="GOLD">Gold</option><option value="SILVER">Silver</option></select></td>
+                            <td>
+                                {/* DYNAMIC METAL DROPDOWN IN SHOP DETAILS */}
+                                <select className="form-select form-select-sm" value={row.type} onChange={e => handleRowChange(i, 'type', e.target.value)}>
+                                    {productTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                </select>
+                            </td>
                             <td><input className="form-control form-control-sm" value={row.desc} onChange={e => handleRowChange(i, 'desc', e.target.value)} /></td>
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
                             <td>
@@ -381,7 +399,6 @@ function ShopDetails() {
                 )}
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
-                    {/* NEW: ACTION SELECTOR */}
                     <div className="mb-3 text-center">
                         <label className="fw-bold me-3">Action Type:</label>
                         <div className="form-check form-check-inline">
@@ -413,7 +430,7 @@ function ShopDetails() {
         </div>
       )}
 
-      {/* Edit and Settle Modals unchanged... */}
+      {/* Edit and Settle modals remain mostly standard but could be updated if deeper precision is needed for custom metals. For now, they rely on Gold/Silver/Cash balance columns. */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">

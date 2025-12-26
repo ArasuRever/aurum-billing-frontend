@@ -5,12 +5,13 @@ function InventoryManager() {
   const [items, setItems] = useState([]);
   const [filterMode, setFilterMode] = useState(''); // ''=ALL, 'OWN'=Shop Stock, Number=VendorID
   const [vendors, setVendors] = useState([]);
+  const [productTypes, setProductTypes] = useState([]); // NEW: Dynamic Product Types
   
   // Batch Add Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [batchForm, setBatchForm] = useState({
       vendor_id: '', // can be 'OWN' or a vendor ID
-      metal_type: 'GOLD',
+      metal_type: '', 
       invoice_no: '',
       items: [] 
   });
@@ -23,12 +24,20 @@ function InventoryManager() {
 
   const fetchData = async () => {
     try {
-      const [invRes, vendRes] = await Promise.all([
+      const [invRes, vendRes, typesRes] = await Promise.all([
         api.getInventory(),
-        api.searchVendor('') 
+        api.searchVendor(''),
+        api.getProductTypes()
       ]);
       setItems(invRes.data);
       setVendors(vendRes.data);
+      
+      const types = typesRes.data || [];
+      setProductTypes(types);
+      if(types.length > 0) {
+           setBatchForm(prev => ({ ...prev, metal_type: types[0].name }));
+      }
+
     } catch (err) { console.error(err); }
   };
 
@@ -49,17 +58,13 @@ function InventoryManager() {
   };
 
   const submitBatch = async () => {
-      // Validation: vendor_id must be selected (either specific ID or 'OWN')
       if(!batchForm.vendor_id) return alert("Select Vendor or 'Shop Stock'");
-      // Invoice is optional for Own Stock, required for Vendor
       if(batchForm.vendor_id !== 'OWN' && !batchForm.invoice_no) return alert("Invoice No is required for Vendor Stock");
-      
       if(batchForm.items.length === 0) return alert("Add at least one item");
       
       try {
-          // Prepare Payload
           const payload = {
-              vendor_id: batchForm.vendor_id === 'OWN' ? null : batchForm.vendor_id, // Send null for Own Stock
+              vendor_id: batchForm.vendor_id === 'OWN' ? null : batchForm.vendor_id, 
               metal_type: batchForm.metal_type,
               invoice_no: batchForm.invoice_no || 'OWN-STOCK',
               items: batchForm.items
@@ -69,7 +74,7 @@ function InventoryManager() {
           
           alert("Stock Added Successfully!");
           setShowAddModal(false);
-          setBatchForm({ vendor_id: '', metal_type: 'GOLD', invoice_no: '', items: [] });
+          setBatchForm({ vendor_id: '', metal_type: productTypes[0]?.name || 'GOLD', invoice_no: '', items: [] });
           fetchData();
       } catch(err) { alert(err.message); }
   };
@@ -84,11 +89,9 @@ function InventoryManager() {
   const totalGold = filteredItems.filter(i => i.metal_type === 'GOLD').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
   const totalSilver = filteredItems.filter(i => i.metal_type === 'SILVER').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
 
-  // Helper to get Source Label
   const getSourceLabel = (item) => {
       if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
       if (item.source_type === 'NEIGHBOUR') return <span className="badge bg-info text-dark">NEIGHBOUR</span>;
-      // Vendor
       const vName = vendors.find(v => v.id === item.vendor_id)?.business_name || 'Unknown Vendor';
       return <span className="text-muted small">{vName}</span>;
   };
@@ -156,7 +159,6 @@ function InventoryManager() {
                                   <label className="small fw-bold">Source</label>
                                   <select className="form-select" value={batchForm.vendor_id} onChange={e => setBatchForm({...batchForm, vendor_id: e.target.value})}>
                                       <option value="">Select Source</option>
-                                      {/* NEW: OWN STOCK OPTION */}
                                       <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
                                       <optgroup label="Vendors">
                                           {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
@@ -165,8 +167,11 @@ function InventoryManager() {
                               </div>
                               <div className="col-md-4">
                                   <label className="small fw-bold">Metal Type</label>
+                                  {/* UPDATED: Dynamic Metal Selection */}
                                   <select className="form-select" value={batchForm.metal_type} onChange={e => setBatchForm({...batchForm, metal_type: e.target.value})}>
-                                      <option value="GOLD">GOLD</option><option value="SILVER">SILVER</option>
+                                      {productTypes.map(type => (
+                                          <option key={type.id} value={type.name}>{type.name}</option>
+                                      ))}
                                   </select>
                               </div>
                               <div className="col-md-4">

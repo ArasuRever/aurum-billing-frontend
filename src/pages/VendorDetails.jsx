@@ -20,6 +20,7 @@ function VendorDetails() {
   const [transactions, setTransactions] = useState([]);
   const [agents, setAgents] = useState([]);
   const [masterItems, setMasterItems] = useState([]); 
+  const [productTypes, setProductTypes] = useState([]); // NEW: Dynamic Product Types
 
   // UI Modes & Search
   const [viewMode, setViewMode] = useState('overview'); 
@@ -40,7 +41,7 @@ function VendorDetails() {
 
   // Stock Form
   const [stockRows, setStockRows] = useState([]);
-  const [batchInvoice, setBatchInvoice] = useState(''); // NEW STATE
+  const [batchInvoice, setBatchInvoice] = useState('');
 
   useEffect(() => { loadAllData(); }, [id]);
 
@@ -50,14 +51,18 @@ function VendorDetails() {
       const v = allVendors.data.find(v => v.id === parseInt(id));
       if (v) { setVendor(v); setEditVendorForm(v); }
       
-      const itemRes = await api.getVendorInventory(id);
+      // NEW: Fetch product types alongside other data
+      const [itemRes, transRes, agentRes, typeRes] = await Promise.all([
+          api.getVendorInventory(id),
+          api.getVendorTransactions(id),
+          api.getVendorAgents(id),
+          api.getProductTypes()
+      ]);
+
       setItems(itemRes.data);
-
-      const transRes = await api.getVendorTransactions(id);
       setTransactions(transRes.data || []); 
-
-      const agentRes = await api.getVendorAgents(id);
       setAgents(agentRes.data || []);
+      setProductTypes(typeRes.data || []);
 
       fetchMasterItems();
     } catch (err) { console.error("Error loading data", err); }
@@ -109,19 +114,35 @@ function VendorDetails() {
   const handleEditAgent = (agent) => { setAgentForm({ id: agent.id, agent_name: agent.agent_name, agent_phone: agent.agent_phone, agent_photo: null }); setIsEditingAgent(true); };
   const handleDeleteAgent = async (agentId) => { if(window.confirm("Delete?")) { await api.deleteAgent(agentId); const res = await api.getVendorAgents(id); setAgents(res.data); }};
 
-  // --- STOCK FORM LOGIC ---
-  const getDefaultMetal = () => (!vendor || vendor.vendor_type === 'SILVER') ? 'SILVER' : 'GOLD';
-  const showGoldOption = () => !vendor || vendor.vendor_type !== 'SILVER';
-  const showSilverOption = () => !vendor || vendor.vendor_type !== 'GOLD';
+  // --- STOCK FORM LOGIC (DYNAMIC) ---
+  
+  // Helper: Filter metals based on vendor preference
+  const getAllowedMetals = () => {
+    if (!vendor) return [];
+    // If vendor allows "BOTH" (or legacy value), show all product types
+    if (!vendor.vendor_type || vendor.vendor_type === 'BOTH') return productTypes;
+    
+    // Otherwise, try to find the specific metal they deal in
+    const specific = productTypes.filter(t => t.name === vendor.vendor_type);
+    return specific.length > 0 ? specific : productTypes; // Fallback to all if mismatch
+  };
 
   const initStockForm = () => {
     fetchMasterItems();
-    setStockRows([{ metal_type: getDefaultMetal(), stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+    const allowed = getAllowedMetals();
+    const defaultMetal = allowed.length > 0 ? allowed[0].name : 'GOLD';
+
+    setStockRows([{ metal_type: defaultMetal, stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
     setBatchInvoice('');
     setViewMode('add_stock'); setPurityMode('TOUCH');
   };
 
-  const handleAddRow = () => setStockRows([...stockRows, { metal_type: getDefaultMetal(), stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+  const handleAddRow = () => {
+    const allowed = getAllowedMetals();
+    const defaultMetal = allowed.length > 0 ? allowed[0].name : 'GOLD';
+    setStockRows([...stockRows, { metal_type: defaultMetal, stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+  };
+  
   const removeRow = (i) => setStockRows(stockRows.filter((_, idx) => idx !== i));
 
   const togglePurityMode = () => {
@@ -159,51 +180,73 @@ function VendorDetails() {
 
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
   
-  // NEW: Updated Submit Logic for Batching
+  // Helper to auto-create master items if they don't exist
+  const autoCreateMasterItems = async (itemsToSave) => {
+      const newItems = itemsToSave.filter(stockItem => {
+          if (!stockItem.item_name) return false;
+          const exists = masterItems.some(master => 
+              master.item_name.toLowerCase() === stockItem.item_name.trim().toLowerCase() && 
+              master.metal_type === stockItem.metal_type
+          );
+          return !exists;
+      });
+
+      if (newItems.length === 0) return;
+
+      const grouped = {};
+      newItems.forEach(item => {
+          if (!grouped[item.metal_type]) grouped[item.metal_type] = [];
+          if (!grouped[item.metal_type].some(i => i.item_name.toLowerCase() === item.item_name.trim().toLowerCase())) {
+                grouped[item.metal_type].push(item);
+          }
+      });
+
+      for (const metal of Object.keys(grouped)) {
+          const groupItems = grouped[metal];
+          const names = groupItems.map(i => i.item_name.trim());
+          const referenceItem = groupItems[0];
+          try {
+              await api.addMasterItemsBulk({
+                  item_names: names,
+                  metal_type: metal,
+                  calc_method: 'STANDARD',
+                  default_wastage: referenceItem.wastage_percent || 0,
+                  mc_type: 'FIXED', 
+                  mc_value: 0,
+                  hsn_code: '' 
+              });
+          } catch (err) { console.warn("Failed to auto-create master items", err); }
+      }
+      fetchMasterItems();
+  };
+
   const handleSubmitStock = async () => {
     const validRows = stockRows.filter(r => r.item_name && r.gross_weight);
     if (validRows.length === 0) return alert("Fill at least one row");
 
-    // Group rows by Metal Type
-    const grouped = {};
-    validRows.forEach(row => {
-        if(!grouped[row.metal_type]) grouped[row.metal_type] = [];
-        grouped[row.metal_type].push(row);
-    });
-
     try {
+      await autoCreateMasterItems(validRows);
+      const grouped = {};
+      validRows.forEach(row => {
+          if(!grouped[row.metal_type]) grouped[row.metal_type] = [];
+          grouped[row.metal_type].push(row);
+      });
+
       for (const metal of Object.keys(grouped)) {
           const itemsToProcess = grouped[metal];
-          
-          // Process images to Base64 async
           const processedItems = await Promise.all(itemsToProcess.map(async (item) => {
               let b64 = null;
               if (item.item_image && item.item_image instanceof File) {
                   b64 = await toBase64(item.item_image);
               }
-              return {
-                  ...item,
-                  pure_weight: item.calc_total_pure, // Send frontend calculated pure
-                  item_image_base64: b64 // Send image as Base64 string
-              };
+              return { ...item, pure_weight: item.calc_total_pure, item_image_base64: b64 };
           }));
 
-          // Send Batch
-          await api.addBatchInventory({
-              vendor_id: id,
-              metal_type: metal,
-              invoice_no: batchInvoice,
-              items: processedItems
-          });
+          await api.addBatchInventory({ vendor_id: id, metal_type: metal, invoice_no: batchInvoice, items: processedItems });
       }
 
-      alert('Stock Added Successfully!'); 
-      setViewMode('overview'); 
-      loadAllData();
-    } catch(err) { 
-        console.error(err);
-        alert('Error adding stock: ' + err.message); 
-    }
+      alert('Stock Added Successfully!'); setViewMode('overview'); loadAllData();
+    } catch(err) { console.error(err); alert('Error adding stock: ' + err.message); }
   };
 
   const handleDeleteItem = async (itemId) => { if(window.confirm("Delete item? Reduces balance.")) { await api.deleteInventory(itemId); loadAllData(); }};
@@ -217,6 +260,13 @@ function VendorDetails() {
     try { await api.vendorTransaction(payload); alert('Saved'); setShowRepayment(false); setRepayForm({ type: 'CASH', amount: '', rate: '', metal_weight: '', description: '' }); loadAllData(); } catch (err) { alert(err.message); }
   };
 
+  // --- TRANSACTION HELPER ---
+  const getTxnBadge = (type) => {
+      if(type === 'STOCK_ADDED') return <span className="fw-bold text-danger">STOCK</span>;
+      if(type === 'STOCK_UPDATE') return <span className="fw-bold text-primary">UPDATE</span>;
+      return <span className="fw-bold text-success">PAID</span>;
+  };
+
   if (!vendor) return <div className="p-5 text-center">Loading...</div>;
 
   return (
@@ -224,7 +274,6 @@ function VendorDetails() {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/')}><i className="bi bi-arrow-left me-1"></i> Back</button>
         <div className="d-flex gap-2">
-            {/* GLOBAL SEARCH BAR */}
             {viewMode === 'overview' && (
                 <div className="input-group input-group-sm" style={{width: '250px'}}>
                     <span className="input-group-text bg-white border-end-0"><i className="bi bi-search"></i></span>
@@ -242,7 +291,6 @@ function VendorDetails() {
         <div className="card shadow-sm border-0 mb-4">
           <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
               <h5 className="mb-0">Add Stock</h5>
-              {/* INVOICE INPUT */}
               <input type="text" className="form-control form-control-sm w-auto text-uppercase" placeholder="Invoice / Ref No" value={batchInvoice} onChange={e => setBatchInvoice(e.target.value)} />
           </div>
           <div className="table-responsive">
@@ -255,7 +303,14 @@ function VendorDetails() {
               <tbody>
                 {stockRows.map((row, i) => (
                   <tr key={i}>
-                    <td><select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>{showGoldOption() && <option value="GOLD">GOLD</option>}{showSilverOption() && <option value="SILVER">SILVER</option>}</select></td>
+                    <td>
+                        {/* DYNAMIC METAL TYPE SELECTOR */}
+                        <select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>
+                            {getAllowedMetals().map(type => (
+                                <option key={type.id} value={type.name}>{type.name}</option>
+                            ))}
+                        </select>
+                    </td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{masterItems.filter(m => m.metal_type === row.metal_type).map((m, idx) => <option key={idx} value={m.item_name} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" style={{width:'80px'}} accept="image/*" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
                     <td><select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)}><option value="SINGLE">Single</option><option value="BULK">Bulk</option></select></td>
@@ -296,7 +351,6 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-6">
-                {/* AVAILABLE STOCK */}
                 <div className="card shadow-sm border-0 mb-4">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-success">Available Stock</h6>
@@ -330,7 +384,6 @@ function VendorDetails() {
                     </div>
                 </div>
 
-                {/* SOLD ITEMS */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold History</h6>
@@ -358,7 +411,6 @@ function VendorDetails() {
                 </div>
              </div>
              
-             {/* RIGHT: LEDGER */}
              <div className="col-md-3">
                  <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                     <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
@@ -382,7 +434,7 @@ function VendorDetails() {
                        {transactions.map(txn => (
                            <li key={txn.id} className="list-group-item">
                              <div className="d-flex justify-content-between">
-                               <span className={`fw-bold ${txn.type === 'STOCK_ADDED' ? 'text-danger' : 'text-success'}`}>{txn.type === 'STOCK_ADDED' ? 'STOCK' : 'PAID'}</span>
+                               {getTxnBadge(txn.type)}
                                <span>{new Date(txn.created_at).toLocaleDateString()}</span>
                              </div>
                              <div className="mb-1 text-muted" style={{fontSize:'0.75rem'}}>{txn.description}</div>
@@ -441,7 +493,15 @@ function VendorDetails() {
                   <div className="modal-body">
                      <input className="form-control mb-2" placeholder="Name" value={editVendorForm.business_name} onChange={e => setEditVendorForm({...editVendorForm, business_name: e.target.value})} />
                      <input className="form-control mb-2" placeholder="Contact" value={editVendorForm.contact_number} onChange={e => setEditVendorForm({...editVendorForm, contact_number: e.target.value})} />
-                     <select className="form-select mb-2" value={editVendorForm.vendor_type} onChange={e => setEditVendorForm({...editVendorForm, vendor_type: e.target.value})}><option value="BOTH">Gold & Silver</option><option value="GOLD">Gold Only</option><option value="SILVER">Silver Only</option></select>
+                     
+                     {/* UPDATED: Dynamic Metal Type Selection */}
+                     <select className="form-select mb-2" value={editVendorForm.vendor_type} onChange={e => setEditVendorForm({...editVendorForm, vendor_type: e.target.value})}>
+                        <option value="BOTH">All Metals (Both)</option>
+                        {productTypes.map(t => (
+                            <option key={t.id} value={t.name}>{t.name} Only</option>
+                        ))}
+                     </select>
+                     
                      <textarea className="form-control mb-2" placeholder="Address" value={editVendorForm.address} onChange={e => setEditVendorForm({...editVendorForm, address: e.target.value})} />
                      <input className="form-control mb-2" placeholder="GST" value={editVendorForm.gst_number} onChange={e => setEditVendorForm({...editVendorForm, gst_number: e.target.value})} />
                   </div>

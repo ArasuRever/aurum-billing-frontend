@@ -40,16 +40,36 @@ function SettingsPage() {
   const loadData = async () => {
     try {
         const [typesRes, itemsRes, ratesRes] = await Promise.all([api.getProductTypes(), api.getMasterItems(), api.getDailyRates()]);
+        
+        // FIX: Removed the manual fallback that caused the "disappearing tabs" bug.
+        // We now rely 100% on the database response.
         let types = typesRes.data || [];
-        if(types.length === 0) types = [{id: 1, name: 'GOLD', display_color: '#ffc107', hsn_code: '7108'}, {id: 2, name: 'SILVER', display_color: '#adb5bd', hsn_code: '7106'}];
         
-        setProductTypes(types); setItems(itemsRes.data || []); setRates(ratesRes.data || {});
+        setProductTypes(types); 
+        setItems(itemsRes.data || []); 
+        setRates(ratesRes.data || {});
         
-        const current = types.find(t => t.name === activeProductTab) || types[0];
-        if(current) {
-            setActiveProductTab(current.name);
-            setActiveTabSettings({ id: current.id, formula: current.formula || '', display_color: current.display_color || '', hsn_code: current.hsn_code || '' });
+        // Smart Tab Selection Logic
+        if (types.length > 0) {
+            // Try to keep the current tab active, otherwise default to the first available tab
+            const currentTabExists = types.find(t => t.name === activeProductTab);
+            const targetTab = currentTabExists || types[0];
+
+            if (targetTab) {
+                setActiveProductTab(targetTab.name);
+                setActiveTabSettings({ 
+                    id: targetTab.id, 
+                    formula: targetTab.formula || '', 
+                    display_color: targetTab.display_color || '', 
+                    hsn_code: targetTab.hsn_code || '' 
+                });
+            }
+        } else {
+             // Handle case where DB is completely empty (no tabs)
+             setActiveProductTab('');
+             setActiveTabSettings({ id: null, formula: '', display_color: '', hsn_code: '' });
         }
+
     } catch (err) { console.error("Error loading settings", err); }
   };
 
@@ -116,7 +136,7 @@ function SettingsPage() {
   );
 
   const handleAddTab = async () => { if(!newTabName) return; try { await api.addProductType({ name: newTabName, formula: '', display_color: '#333333' }); setNewTabName(''); setShowAddTab(false); loadData(); } catch(e) { alert(e.message); } };
-  const handleDeleteTab = async () => { if(!window.confirm(`Delete?`)) return; try { await api.deleteProductType(activeTabSettings.id); setActiveProductTab('GOLD'); loadData(); } catch(e) { alert("Error"); } };
+  const handleDeleteTab = async () => { if(!window.confirm(`Delete?`)) return; try { await api.deleteProductType(activeTabSettings.id); setActiveProductTab(''); loadData(); } catch(e) { alert("Error"); } };
 
   return (
     <div className="container-fluid mt-4 pb-5">

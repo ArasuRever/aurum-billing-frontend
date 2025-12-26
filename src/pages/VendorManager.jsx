@@ -5,12 +5,13 @@ import { api } from '../api';
 function VendorManager() {
   const navigate = useNavigate();
   const [vendors, setVendors] = useState([]);
+  const [productTypes, setProductTypes] = useState([]); // NEW: Dynamic Metal Types
   const [searchTerm, setSearchTerm] = useState('');
 
   // --- MODAL STATES ---
   const [showAddVendor, setShowAddVendor] = useState(false);
   const [showAddAgent, setShowAddAgent] = useState(false);
-  const [showStockModal, setShowStockModal] = useState(false); // NEW
+  const [showStockModal, setShowStockModal] = useState(false);
 
   // --- FORMS ---
   const [vendorForm, setVendorForm] = useState({ 
@@ -23,10 +24,10 @@ function VendorManager() {
   
   const [agentForm, setAgentForm] = useState({ vendor_id: '', agent_name: '', agent_phone: '', agent_photo: null });
 
-  // --- STOCK BATCH FORM (NEW) ---
+  // --- STOCK BATCH FORM ---
   const [batchForm, setBatchForm] = useState({
       vendor_id: '',
-      metal_type: 'GOLD',
+      metal_type: '', // Changed default to empty to force selection or set in useEffect
       invoice_no: '',
       items: [] 
   });
@@ -35,6 +36,7 @@ function VendorManager() {
 
   useEffect(() => {
     fetchVendors(searchTerm);
+    fetchSettings(); // NEW: Fetch types on load
   }, [searchTerm]);
 
   const fetchVendors = async (q = '') => {
@@ -42,6 +44,19 @@ function VendorManager() {
       const res = await api.searchVendor(q);
       setVendors(res.data);
     } catch (err) { console.error(err); }
+  };
+
+  // NEW: Fetch Dynamic Product Types
+  const fetchSettings = async () => {
+      try {
+          const res = await api.getProductTypes();
+          const types = res.data || [];
+          setProductTypes(types);
+          // Set default metal type for stock form if available
+          if(types.length > 0 && !batchForm.metal_type) {
+              setBatchForm(prev => ({ ...prev, metal_type: types[0].name }));
+          }
+      } catch (err) { console.error("Error loading product types", err); }
   };
 
   // --- VENDOR & AGENT HANDLERS ---
@@ -71,7 +86,7 @@ function VendorManager() {
     } catch (err) { alert('Error adding agent'); }
   };
 
-  // --- STOCK HANDLERS (NEW) ---
+  // --- STOCK HANDLERS ---
   const handleAddItemToBatch = () => {
       if(!tempItem.item_name || !tempItem.gross_weight) return alert("Enter Item Name and Weight");
       setBatchForm({
@@ -100,8 +115,7 @@ function VendorManager() {
           await api.addBatchInventory(payload);
           alert("Stock Added Successfully!");
           setShowStockModal(false);
-          setBatchForm({ vendor_id: '', metal_type: 'GOLD', invoice_no: '', items: [] });
-          // Optionally refresh vendors to show updated balances if we fetched that detail here
+          setBatchForm({ vendor_id: '', metal_type: productTypes[0]?.name || 'GOLD', invoice_no: '', items: [] });
           fetchVendors(searchTerm); 
       } catch(err) { alert(err.message); }
   };
@@ -111,7 +125,6 @@ function VendorManager() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2 className="fw-bold text-primary"><i className="bi bi-people-fill me-2"></i>Vendors</h2>
         <div>
-          {/* NEW: ADD STOCK BUTTON */}
           <button className="btn btn-success shadow-sm me-2 fw-bold" onClick={() => setShowStockModal(true)}>
             <i className="bi bi-box-seam me-2"></i>Add Stock
           </button>
@@ -151,6 +164,7 @@ function VendorManager() {
                     <div className="small text-muted" style={{fontSize: '0.75rem'}}>ID: {vendor.id}</div>
                   </td>
                   <td>
+                    {/* DYNAMIC BADGE LOGIC */}
                     <span className={`badge ${vendor.vendor_type === 'GOLD' ? 'bg-warning text-dark' : vendor.vendor_type === 'SILVER' ? 'bg-secondary' : 'bg-info text-dark'}`}>
                         {vendor.vendor_type || 'BOTH'}
                     </span>
@@ -188,9 +202,10 @@ function VendorManager() {
                 <div className="mb-3">
                     <label className="form-label small fw-bold">Vendor Dealing Type</label>
                     <select className="form-select" value={vendorForm.vendor_type} onChange={e => setVendorForm({...vendorForm, vendor_type: e.target.value})}>
-                        <option value="BOTH">Gold & Silver (Both)</option>
-                        <option value="GOLD">Gold Only</option>
-                        <option value="SILVER">Silver Only</option>
+                        <option value="BOTH">All Metals (Both)</option>
+                        {productTypes.map(type => (
+                            <option key={type.id} value={type.name}>{type.name} Only</option>
+                        ))}
                     </select>
                 </div>
                 <div className="mb-3">
@@ -215,7 +230,7 @@ function VendorManager() {
         </div>
       )}
 
-      {/* --- MODAL: ADD AGENT --- */}
+      {/* --- MODAL: ADD AGENT (Unchanged) --- */}
       {showAddAgent && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog">
@@ -254,7 +269,7 @@ function VendorManager() {
         </div>
       )}
 
-      {/* --- MODAL: BATCH ADD STOCK (NEW) --- */}
+      {/* --- MODAL: BATCH ADD STOCK (UPDATED) --- */}
       {showStockModal && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog modal-lg">
@@ -278,8 +293,11 @@ function VendorManager() {
                               </div>
                               <div className="col-md-4">
                                   <label className="small fw-bold">Metal Type</label>
+                                  {/* DYNAMIC METAL TYPE DROPDOWN */}
                                   <select className="form-select" value={batchForm.metal_type} onChange={e => setBatchForm({...batchForm, metal_type: e.target.value})}>
-                                      <option value="GOLD">GOLD</option><option value="SILVER">SILVER</option>
+                                      {productTypes.map(type => (
+                                          <option key={type.id} value={type.name}>{type.name}</option>
+                                      ))}
                                   </select>
                               </div>
                               <div className="col-md-4">
