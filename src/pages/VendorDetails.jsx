@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
-// Helper to convert File to Base64
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result.split(',')[1]); // remove data:image/jpeg;base64, header
+    reader.onload = () => resolve(reader.result.split(',')[1]); 
     reader.onerror = error => reject(error);
 });
 
@@ -16,13 +15,14 @@ function VendorDetails() {
   
   // Data
   const [vendor, setVendor] = useState(null);
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]); // Current Inventory
+  const [soldHistory, setSoldHistory] = useState([]); // NEW: Sales History Data
   const [transactions, setTransactions] = useState([]);
   const [agents, setAgents] = useState([]);
   const [masterItems, setMasterItems] = useState([]); 
-  const [productTypes, setProductTypes] = useState([]); // NEW: Dynamic Product Types
+  const [productTypes, setProductTypes] = useState([]);
 
-  // UI Modes & Search
+  // UI & Search
   const [viewMode, setViewMode] = useState('overview'); 
   const [itemSearch, setItemSearch] = useState('');
   
@@ -30,7 +30,7 @@ function VendorDetails() {
   const [editForm, setEditForm] = useState({});
   const [purityMode, setPurityMode] = useState('TOUCH'); 
 
-  // Modal States
+  // Modals & Forms
   const [showEditVendor, setShowEditVendor] = useState(false);
   const [editVendorForm, setEditVendorForm] = useState({});
   const [showManageAgents, setShowManageAgents] = useState(false);
@@ -51,14 +51,16 @@ function VendorDetails() {
       const v = allVendors.data.find(v => v.id === parseInt(id));
       if (v) { setVendor(v); setEditVendorForm(v); }
       
-      const [itemRes, transRes, agentRes, typeRes] = await Promise.all([
+      const [itemRes, salesRes, transRes, agentRes, typeRes] = await Promise.all([
           api.getVendorInventory(id),
+          api.getVendorSalesHistory(id), // <--- NEW API CALL
           api.getVendorTransactions(id),
           api.getVendorAgents(id),
           api.getProductTypes()
       ]);
 
       setItems(itemRes.data);
+      setSoldHistory(salesRes.data || []); // <--- Store Sold History
       setTransactions(transRes.data || []); 
       setAgents(agentRes.data || []);
       setProductTypes(typeRes.data || []);
@@ -74,7 +76,7 @@ function VendorDetails() {
       } catch (e) { console.warn("Settings API error", e); }
   };
 
-  // --- FILTER LOGIC (SEARCH) ---
+  // --- FILTER LOGIC ---
   const filterItems = (list) => {
     if(!itemSearch) return list;
     const lower = itemSearch.toLowerCase();
@@ -85,14 +87,15 @@ function VendorDetails() {
     );
   };
 
+  // Display Lists
   const availableItems = filterItems(items.filter(i => i.status === 'AVAILABLE'));
-  const soldItems = filterItems(items.filter(i => i.status === 'SOLD'));
+  const soldItems = filterItems(soldHistory); // <--- Use the dedicated sales history list
 
-  // Calculate Totals for Filtered Views
+  // Calculate Totals
   const availableWeight = availableItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
   const soldWeight = soldItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
 
-  // --- ACTIONS ---
+  // --- ACTIONS (Unchanged) ---
   const handleUpdateVendor = async () => { try { await api.updateVendor(id, editVendorForm); alert('Vendor Updated'); setShowEditVendor(false); loadAllData(); } catch (err) { alert('Update failed'); } };
   
   const handleSaveAgent = async () => {
@@ -102,7 +105,6 @@ function VendorDetails() {
     formData.append('agent_name', agentForm.agent_name);
     formData.append('agent_phone', agentForm.agent_phone);
     if (agentForm.agent_photo) formData.append('agent_photo', agentForm.agent_photo);
-
     try {
       if (isEditingAgent && agentForm.id) { await api.updateAgent(agentForm.id, formData); } else { await api.addAgent(formData); }
       setAgentForm({ id: null, agent_name: '', agent_phone: '', agent_photo: null }); setIsEditingAgent(false);
@@ -113,9 +115,7 @@ function VendorDetails() {
   const handleEditAgent = (agent) => { setAgentForm({ id: agent.id, agent_name: agent.agent_name, agent_phone: agent.agent_phone, agent_photo: null }); setIsEditingAgent(true); };
   const handleDeleteAgent = async (agentId) => { if(window.confirm("Delete?")) { await api.deleteAgent(agentId); const res = await api.getVendorAgents(id); setAgents(res.data); }};
 
-  // --- STOCK FORM LOGIC (DYNAMIC) ---
-  
-  // Helper: Filter metals based on vendor preference
+  // --- STOCK FORM LOGIC ---
   const getAllowedMetals = () => {
     if (!vendor) return [];
     if (!vendor.vendor_type || vendor.vendor_type === 'BOTH') return productTypes;
@@ -127,8 +127,6 @@ function VendorDetails() {
     fetchMasterItems();
     const allowed = getAllowedMetals();
     const defaultMetal = allowed.length > 0 ? allowed[0].name : 'GOLD';
-
-    // UPDATED: Include quantity: 1 in initial row
     setStockRows([{ metal_type: defaultMetal, stock_type: 'SINGLE', quantity: 1, item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
     setBatchInvoice('');
     setViewMode('add_stock'); setPurityMode('TOUCH');
@@ -177,7 +175,6 @@ function VendorDetails() {
 
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
   
-  // Helper to auto-create master items
   const autoCreateMasterItems = async (itemsToSave) => {
       const newItems = itemsToSave.filter(stockItem => {
           if (!stockItem.item_name) return false;
@@ -187,9 +184,7 @@ function VendorDetails() {
           );
           return !exists;
       });
-
       if (newItems.length === 0) return;
-
       const grouped = {};
       newItems.forEach(item => {
           if (!grouped[item.metal_type]) grouped[item.metal_type] = [];
@@ -197,7 +192,6 @@ function VendorDetails() {
                 grouped[item.metal_type].push(item);
           }
       });
-
       for (const metal of Object.keys(grouped)) {
           const groupItems = grouped[metal];
           const names = groupItems.map(i => i.item_name.trim());
@@ -240,7 +234,7 @@ function VendorDetails() {
                   ...item, 
                   pure_weight: item.calc_total_pure, 
                   item_image_base64: b64,
-                  quantity: item.stock_type === 'BULK' ? (item.quantity || 1) : 1 // SEND QUANTITY
+                  quantity: item.stock_type === 'BULK' ? (item.quantity || 1) : 1 
               };
           }));
 
@@ -313,8 +307,6 @@ function VendorDetails() {
                     </td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{masterItems.filter(m => m.metal_type === row.metal_type).map((m, idx) => <option key={idx} value={m.item_name} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" style={{width:'80px'}} accept="image/*" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
-                    
-                    {/* UPDATED: Type + Quantity Field */}
                     <td>
                         <div className="d-flex gap-1">
                             <select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)} style={{width: row.stock_type === 'BULK' ? '70px' : '100%'}}>
@@ -326,7 +318,6 @@ function VendorDetails() {
                             )}
                         </div>
                     </td>
-
                     <td><input type="number" step="0.001" className="form-control form-control-sm" value={row.gross_weight} onChange={e => handleRowChange(i, 'gross_weight', e.target.value)} /></td>
                     <td><input type="text" className="form-control form-control-sm" placeholder="XXXX" value={row.huid} onChange={e => handleRowChange(i, 'huid', e.target.value)} /></td>
                     <td className="bg-warning bg-opacity-10"><input type="number" step="0.01" className="form-control form-control-sm fw-bold" placeholder={purityMode==='TOUCH'?'92':'10'} value={row.wastage_percent} onChange={e => handleRowChange(i, 'wastage_percent', e.target.value)} /></td>
@@ -410,8 +401,8 @@ function VendorDetails() {
                             <thead className="table-light sticky-top small"><tr><th>Date</th><th>Image</th><th>Details</th><th>Wt</th><th>Status</th></tr></thead>
                             <tbody>
                                 {soldItems.length === 0 && <tr><td colSpan="5" className="text-center py-3 text-muted">No sold items</td></tr>}
-                                {soldItems.map(item => (
-                                    <tr key={item.id} className="bg-light opacity-75">
+                                {soldItems.map((item, idx) => (
+                                    <tr key={idx} className="bg-light opacity-75">
                                         <td className="small text-muted">{new Date(item.created_at).toLocaleDateString()}</td>
                                         <td>{item.item_image && <img src={item.item_image} className="rounded border" style={{width:'35px',height:'35px',objectFit:'cover',filter:'grayscale(100%)'}} />}</td>
                                         <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div></td>
@@ -426,6 +417,7 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-3">
+                 {/* Right Column: Ledger (Code Unchanged) */}
                  <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                     <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
                     <div className="display-6 fw-bold">{parseFloat(vendor.balance_pure_weight || 0).toFixed(3)} g</div>

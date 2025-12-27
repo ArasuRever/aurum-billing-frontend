@@ -17,6 +17,7 @@ export const api = {
   deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`),
   vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
   getVendorTransactions: (id) => axios.get(`${API_URL}/vendors/${id}/transactions`),
+  getVendorSalesHistory: (id) => axios.get(`${API_URL}/inventory/vendor-history/${id}`),
 
   // --- INVENTORY ---
   addInventory: (formData) => axios.post(`${API_URL}/inventory/add`, formData),
