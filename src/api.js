@@ -37,6 +37,12 @@ export const api = {
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
   processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
 
+  // AUDIT
+  startAudit: (data) => axios.post(`${API_URL}/audit/start`, data),
+  scanAuditItem: (data) => axios.post(`${API_URL}/audit/scan`, data),
+  getAuditReport: (id) => axios.get(`${API_URL}/audit/${id}/report`),
+  finishAudit: (id) => axios.post(`${API_URL}/audit/${id}/finish`),
+
   // --- SHOPS ---
   addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
   getShops: () => axios.get(`${API_URL}/shops/list?t=${Date.now()}`),

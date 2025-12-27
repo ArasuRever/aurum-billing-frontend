@@ -45,7 +45,6 @@ function Navbar() {
                 Sales
               </a>
               <ul className="dropdown-menu">
-                {/* --- FIX IS HERE: Changed to="/billing" --- */}
                 <li><Link className="dropdown-item" to="/billing"><i className="bi bi-receipt me-2"></i>New Bill</Link></li>
                 <li><Link className="dropdown-item" to="/bill-history"><i className="bi bi-clock-history me-2"></i>Bill History</Link></li>
                 <li><hr className="dropdown-divider" /></li>
@@ -56,7 +55,8 @@ function Navbar() {
 
             {/* 2. INVENTORY GROUP */}
             <li className="nav-item dropdown">
-              <a className={`nav-link dropdown-toggle ${isDropdownActive(['/inventory', '/old-metal', '/refinery', '/add-stock'])}`} href="#" role="button" data-bs-toggle="dropdown">
+              {/* Added '/audit' to the active check list below */}
+              <a className={`nav-link dropdown-toggle ${isDropdownActive(['/inventory', '/old-metal', '/refinery', '/add-stock', '/audit'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Inventory
               </a>
               <ul className="dropdown-menu">
@@ -66,6 +66,15 @@ function Navbar() {
                     </Link>
                 </li>
                 <li><Link className="dropdown-item" to="/inventory"><i className="bi bi-box-seam me-2"></i>Manage Inventory</Link></li>
+                
+                {/* --- NEW AUDIT LINK --- */}
+                <li>
+                    <Link className="dropdown-item fw-bold text-primary" to="/audit">
+                        <i className="bi bi-upc-scan me-2"></i>Stock Audit (Tally)
+                    </Link>
+                </li>
+                {/* ---------------------- */}
+
                 <li><hr className="dropdown-divider" /></li>
                 <li><Link className="dropdown-item" to="/old-metal"><i className="bi bi-recycle me-2"></i>Scrap / Old Metal</Link></li>
                 <li><Link className="dropdown-item" to="/refinery"><i className="bi bi-droplet-half me-2"></i>Refinery</Link></li>

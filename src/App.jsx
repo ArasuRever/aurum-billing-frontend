@@ -20,7 +20,8 @@ import OldMetalPage from './pages/OldMetalPage';
 import RefineryManager from './pages/RefineryManager';
 import BulkStockEntry from './pages/BulkStockEntry';
 import ExternalGST from './pages/ExternalGST';
-import Dashboard from './pages/Dashboard'; // NEW DASHBOARD PAGE
+import Dashboard from './pages/Dashboard';
+import StockAudit from './pages/StockAudit';
 
 function App() {
   return (
@@ -49,6 +50,7 @@ function App() {
               <Route path="/ledger" element={<LedgerDashboard />} />
               <Route path="/old-metal" element={<OldMetalPage />} />
               <Route path="/refinery" element={<RefineryManager />} />
+              <Route path="/audit" element={<StockAudit />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
