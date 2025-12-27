@@ -12,7 +12,6 @@ function OldMetalPage() {
   const [showModal, setShowModal] = useState(false);
   const [customer, setCustomer] = useState({ customer_name: '', mobile: '' });
   
-  // ITEMS STATE with UNDO/REDO
   const [items, setItems] = useState([
       { item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }
   ]);
@@ -21,9 +20,10 @@ function OldMetalPage() {
 
   // --- GST & PAYMENT STATE ---
   const [deductGst, setDeductGst] = useState(false); 
-  const [paymentMode, setPaymentMode] = useState('cash'); // 'cash', 'online', 'combined'
+  const [paymentMode, setPaymentMode] = useState('cash'); 
   const [cashPaid, setCashPaid] = useState(0);
   const [onlinePaid, setOnlinePaid] = useState(0);
+  const [finalPayoutOverride, setFinalPayoutOverride] = useState('');
 
   // Search & Print State
   const [searchResults, setSearchResults] = useState([]);
@@ -79,7 +79,6 @@ function OldMetalPage() {
     let lp = parseFloat(row.less_percent) || 0;
     let lw = parseFloat(row.less_weight) || 0;
 
-    // Smart Calculation Logic
     if (field === 'gross_weight') {
         lw = (gw * lp) / 100;
         row.less_weight = lw.toFixed(3);
@@ -118,49 +117,47 @@ function OldMetalPage() {
     }
   };
 
-  // --- TOTALS & GST LOGIC (FORWARD) ---
+  // --- TOTALS & CALCULATIONS ---
   const subTotal = items.reduce((sum, it) => sum + parseFloat(it.amount || 0), 0);
   
-  let taxableValue = 0;
+  let taxableValue = subTotal;
   let gstAmount = 0;
-  let netPayout = 0;
+  let calculatedNetPayout = 0;
 
   if (deductGst) {
-    taxableValue = subTotal;
     gstAmount = Math.round(taxableValue * 0.03);
-    netPayout = taxableValue - gstAmount;
+    calculatedNetPayout = taxableValue - gstAmount;
   } else {
-    taxableValue = subTotal;
     gstAmount = 0;
-    netPayout = subTotal;
+    calculatedNetPayout = subTotal;
   }
   
   const cgst = gstAmount / 2;
   const sgst = gstAmount / 2;
 
-  // --- SMART PAYMENT LOGIC (2-WAY SYNC) ---
+  const effectivePayout = finalPayoutOverride !== '' ? parseFloat(finalPayoutOverride) : calculatedNetPayout;
+
   useEffect(() => {
     if (paymentMode === 'cash') {
-      setCashPaid(netPayout);
+      setCashPaid(effectivePayout);
       setOnlinePaid(0);
     } else if (paymentMode === 'online') {
       setCashPaid(0);
-      setOnlinePaid(netPayout);
+      setOnlinePaid(effectivePayout);
     } else if (paymentMode === 'combined') {
        const currentTotal = (parseFloat(cashPaid) || 0) + (parseFloat(onlinePaid) || 0);
-       // Only update if total doesn't match (prevents infinite loop while typing)
-       if (Math.abs(currentTotal - netPayout) > 1) {
-           setCashPaid(netPayout);
+       if (Math.abs(currentTotal - effectivePayout) > 1) {
+           setCashPaid(effectivePayout);
            setOnlinePaid(0);
        }
     }
-  }, [netPayout, paymentMode]);
+  }, [effectivePayout, paymentMode]);
 
   const handleCashChange = (val) => {
     const cash = parseFloat(val) || 0;
     setCashPaid(cash);
     if (paymentMode === 'combined') {
-      const remaining = netPayout - cash;
+      const remaining = effectivePayout - cash;
       setOnlinePaid(remaining > 0 ? remaining : 0);
     }
   };
@@ -169,12 +166,11 @@ function OldMetalPage() {
     const online = parseFloat(val) || 0;
     setOnlinePaid(online);
     if (paymentMode === 'combined') {
-      const remaining = netPayout - online;
+      const remaining = effectivePayout - online;
       setCashPaid(remaining > 0 ? remaining : 0);
     }
   };
 
-  // --- CUSTOMER SEARCH ---
   const handleCustomerSearch = async (val) => {
       setCustomer(prev => ({ ...prev, customer_name: val }));
       if(val.length > 2) {
@@ -193,7 +189,6 @@ function OldMetalPage() {
       setShowSearch(false);
   };
 
-  // --- HISTORY ACTIONS ---
   const handleEditHistory = (row) => {
     setCustomer({ customer_name: row.customer_name, mobile: row.mobile });
     setItems([{ 
@@ -205,6 +200,7 @@ function OldMetalPage() {
        rate: row.net_weight > 0 ? (row.amount / row.net_weight).toFixed(2) : 0, 
        amount: row.amount 
     }]);
+    setFinalPayoutOverride(''); 
     setShowModal(true);
   };
 
@@ -212,37 +208,30 @@ function OldMetalPage() {
      if(window.confirm("Are you sure you want to delete this record?")) {
         try {
             await api.deleteOldMetal(id); 
-            // Update UI locally only after success
             setHistory(history.filter(h => h.id !== id));
             loadData();
         } catch (error) {
-            alert("Failed to delete: " + error.message);
+            // Error handling for locked items
+            alert("Failed to delete: " + (error.response?.data?.message || error.message));
         }
      }
   };
 
-  // --- SAVE HANDLER (With Auto-Add Customer) ---
   const handleFinalSave = async () => {
       const hasValidItem = items.some(i => i.item_name && i.gross_weight && i.rate);
       if(!hasValidItem) return alert("Please enter at least one valid Item.");
       
       try {
-          // --- NEW: Auto-Register Customer ---
           if (customer.mobile && customer.mobile.length >= 10) {
               try {
-                  // Attempt to add customer to main DB. 
-                  // If they exist, this might fail or return existing, which we ignore.
                   await api.addCustomer({
                       name: customer.customer_name,
                       phone: customer.mobile,
                       address: 'Walk-in (Old Metal)',
                       place: 'Local'
                   });
-              } catch (ignore) {
-                  // Ignore errors (e.g., duplicate phone number)
-              }
+              } catch (ignore) {}
           }
-          // -----------------------------------
 
           const validItems = items.filter(i => i.item_name && i.gross_weight);
 
@@ -252,7 +241,8 @@ function OldMetalPage() {
               items: validItems,
               total_amount: subTotal,
               gst_deducted: gstAmount,
-              net_payout: netPayout,
+              calculated_payout: calculatedNetPayout,
+              net_payout: effectivePayout,
               payment_mode: paymentMode,
               cash_paid: cashPaid,
               online_paid: onlinePaid
@@ -267,7 +257,7 @@ function OldMetalPage() {
                   totals: { 
                       totalAmount: subTotal, 
                       gstAmount, 
-                      netPayout, 
+                      netPayout: effectivePayout, 
                       cgst, 
                       sgst 
                   },
@@ -278,12 +268,12 @@ function OldMetalPage() {
               setShowPrintModal(true);
               loadData();
 
-              // Reset Form
               setCustomer({ customer_name: '', mobile: '' });
               setItems([{ item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }]);
               setHistoryStack([]); setFutureStack([]); 
               setDeductGst(false);
               setPaymentMode('cash');
+              setFinalPayoutOverride('');
           } else {
               alert("Saved, but server returned no confirmation data.");
               setShowModal(false);
@@ -308,7 +298,6 @@ function OldMetalPage() {
 
   return (
     <div className="container-fluid pb-5">
-      {/* HEADER & STATS */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2 className="fw-bold text-secondary"><i className="bi bi-recycle me-2"></i>Old Metal / Scrap Stock</h2>
         <div className="d-flex gap-2">
@@ -338,7 +327,6 @@ function OldMetalPage() {
           </div>
       </div>
 
-      {/* HISTORY TABLE */}
       <div className="card shadow-sm border-0">
           <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
@@ -362,10 +350,22 @@ function OldMetalPage() {
                               <td><div className="fw-bold">{row.customer_name}</div><div className="small text-muted">{row.mobile}</div></td>
                               <td>{row.item_name} <span className={`badge ms-1 ${row.metal_type==='GOLD'?'bg-warning text-dark':'bg-secondary'}`}>{row.metal_type}</span></td>
                               <td className="fw-bold">{parseFloat(row.net_weight).toFixed(3)}g</td>
-                              <td className="text-end fw-bold text-danger">- ₹{formatCurrency(row.net_payout || row.amount)}</td>
+                              <td className="text-end fw-bold text-danger">
+                                  - ₹{formatCurrency(row.net_payout || row.amount)}
+                                  {row.calculated_payout && parseFloat(row.calculated_payout) !== parseFloat(row.net_payout) && 
+                                    <div className="small text-muted text-decoration-line-through">₹{formatCurrency(row.calculated_payout)}</div>
+                                  }
+                              </td>
                               <td className="text-center">
-                                  <button className="btn btn-sm btn-link text-primary" onClick={() => handleEditHistory(row)}><i className="bi bi-pencil"></i></button>
-                                  <button className="btn btn-sm btn-link text-danger" onClick={() => handleDeleteHistory(row.id)}><i className="bi bi-trash"></i></button>
+                                  {/* --- LOCK LOGIC HERE --- */}
+                                  {row.status === 'AVAILABLE' ? (
+                                      <>
+                                        <button className="btn btn-sm btn-link text-primary" onClick={() => handleEditHistory(row)}><i className="bi bi-pencil"></i></button>
+                                        <button className="btn btn-sm btn-link text-danger" onClick={() => handleDeleteHistory(row.id)}><i className="bi bi-trash"></i></button>
+                                      </>
+                                  ) : (
+                                      <span className="badge bg-secondary opacity-75"><i className="bi bi-lock-fill me-1"></i>Refinery</span>
+                                  )}
                               </td>
                           </tr>
                       ))}
@@ -374,7 +374,6 @@ function OldMetalPage() {
           </div>
       </div>
 
-      {/* PURCHASE FORM MODAL */}
       {showModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)', overflow: 'auto'}}>
            <div className="modal-dialog modal-xl"> 
@@ -392,7 +391,6 @@ function OldMetalPage() {
                     <button className="btn-close" onClick={() => setShowModal(false)}></button>
                  </div>
                  <div className="modal-body p-4">
-                    {/* 1. CUSTOMER SEARCH */}
                     <div className="row g-2 mb-4">
                         <div className="col-md-6 position-relative">
                             <label className="form-label small fw-bold">Customer Name (Optional)</label>
@@ -400,7 +398,6 @@ function OldMetalPage() {
                                 className="form-control" 
                                 value={customer.customer_name} 
                                 onChange={e => handleCustomerSearch(e.target.value)}
-                                // FIX: Hide search on blur with delay to allow clicking
                                 onBlur={() => setTimeout(() => setShowSearch(false), 200)} 
                                 placeholder="Walk-in Customer"
                                 autoFocus
@@ -423,7 +420,6 @@ function OldMetalPage() {
 
                     <hr className="text-muted"/>
 
-                    {/* 2. ITEMS TABLE */}
                     <div className="table-responsive mb-3 border rounded">
                         <table className="table table-bordered align-middle mb-0 small">
                             <thead className="table-light">
@@ -502,12 +498,28 @@ function OldMetalPage() {
                         </button>
                     </div>
 
-                    {/* 3. PAYMENT & TOTALS FOOTER */}
                     <div className="row g-4">
                         <div className="col-md-6">
                             <div className="card h-100 bg-light border-0">
-                                <div className="card-header bg-transparent fw-bold small text-muted">PAYMENT MODE</div>
+                                <div className="card-header bg-transparent fw-bold small text-muted">PAYMENT DETAILS</div>
                                 <div className="card-body">
+                                    <div className="mb-3">
+                                        <label className="form-label small fw-bold text-success">Final Payout (Bargain/Round-off)</label>
+                                        <div className="input-group">
+                                            <span className="input-group-text bg-success text-white">₹</span>
+                                            <input 
+                                                type="number" 
+                                                className="form-control fw-bold fs-5 text-success"
+                                                placeholder={calculatedNetPayout}
+                                                value={finalPayoutOverride}
+                                                onChange={e => setFinalPayoutOverride(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="form-text small">
+                                            Calculated: ₹{calculatedNetPayout.toLocaleString()} | Leave empty to use calculated.
+                                        </div>
+                                    </div>
+
                                     <div className="btn-group w-100 mb-3" role="group">
                                         <input type="radio" className="btn-check" name="pmode" id="pmCash" checked={paymentMode==='cash'} onChange={()=>setPaymentMode('cash')} />
                                         <label className="btn btn-outline-secondary" htmlFor="pmCash">Cash Only</label>
@@ -571,10 +583,14 @@ function OldMetalPage() {
                                         </div>
                                     </>
                                 )}
-
+                                
                                 <div className="d-flex justify-content-between pt-2">
-                                    <h5 className="fw-bold text-dark">NET PAYOUT:</h5>
-                                    <h3 className="fw-bold text-dark">₹{netPayout.toLocaleString()}</h3>
+                                    <h5 className="fw-bold text-dark">CALCULATED:</h5>
+                                    <h5 className="fw-bold text-muted">₹{calculatedNetPayout.toLocaleString()}</h5>
+                                </div>
+                                <div className="d-flex justify-content-between pt-1 border-top border-dark mt-2">
+                                    <h4 className="fw-bold text-success">PAYING NOW:</h4>
+                                    <h3 className="fw-bold text-success">₹{effectivePayout.toLocaleString()}</h3>
                                 </div>
                             </div>
                         </div>
@@ -590,7 +606,6 @@ function OldMetalPage() {
         </div>
       )}
 
-      {/* PRINT PREVIEW MODAL */}
       {showPrintModal && printData && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)'}}>
               <div className="modal-dialog">
@@ -616,4 +631,4 @@ function OldMetalPage() {
   );
 }
 
-export default OldMetalPage;    
+export default OldMetalPage;

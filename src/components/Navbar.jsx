@@ -1,14 +1,14 @@
-import React, { useContext } from 'react'; // Added useContext
+import React, { useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BusinessContext } from '../context/BusinessContext'; // Added Context Import
+import { BusinessContext } from '../context/BusinessContext';
 
 function Navbar() {
   const location = useLocation();
-  const { settings } = useContext(BusinessContext); // Get Dynamic Settings
+  const { settings } = useContext(BusinessContext);
 
   // Helper to highlight the main dropdown parent if any child is active
   const isDropdownActive = (paths) => {
-      // Handle root path '/' specifically
+      // Handle root path '/' specifically for Dashboard
       if (paths.includes('/') && location.pathname === '/') return 'active fw-bold';
       return paths.some(p => p !== '/' && location.pathname.startsWith(p)) ? 'active fw-bold' : '';
   };
@@ -19,7 +19,7 @@ function Navbar() {
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
       <div className="container-fluid">
         <Link className="navbar-brand fw-bold d-flex align-items-center" to="/">
-           {/* --- DYNAMIC BRANDING START --- */}
+           {/* DYNAMIC BRANDING */}
            {settings.logo ? (
              <img 
                src={settings.logo} 
@@ -30,7 +30,6 @@ function Navbar() {
              <i className="bi bi-gem me-2 text-warning"></i>
            )}
            <span style={{letterSpacing: '1px'}}>{settings.name.toUpperCase()}</span>
-           {/* --- DYNAMIC BRANDING END --- */}
         </Link>
 
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -42,11 +41,12 @@ function Navbar() {
             
             {/* 1. SALES & BILLING GROUP */}
             <li className="nav-item dropdown">
-              <a className={`nav-link dropdown-toggle ${isDropdownActive(['/', '/billing', '/bill-history'])}`} href="#" role="button" data-bs-toggle="dropdown">
+              <a className={`nav-link dropdown-toggle ${isDropdownActive(['/billing', '/bill-history'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Sales
               </a>
               <ul className="dropdown-menu">
-                <li><Link className="dropdown-item" to="/"><i className="bi bi-receipt me-2"></i>New Bill</Link></li>
+                {/* --- FIX IS HERE: Changed to="/billing" --- */}
+                <li><Link className="dropdown-item" to="/billing"><i className="bi bi-receipt me-2"></i>New Bill</Link></li>
                 <li><Link className="dropdown-item" to="/bill-history"><i className="bi bi-clock-history me-2"></i>Bill History</Link></li>
                 <li><hr className="dropdown-divider" /></li>
                 <li><Link className="dropdown-item" to="/billing/return"><i className="bi bi-arrow-return-left me-2"></i>Sales Return</Link></li>
@@ -72,7 +72,7 @@ function Navbar() {
               </ul>
             </li>
 
-            {/* 3. PARTNERS GROUP (Removed Customers) */}
+            {/* 3. PARTNERS GROUP */}
             <li className="nav-item dropdown">
               <a className={`nav-link dropdown-toggle ${isDropdownActive(['/vendors', '/shops'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Partners
@@ -83,7 +83,7 @@ function Navbar() {
               </ul>
             </li>
 
-            {/* 4. CUSTOMERS (Now standalone) */}
+            {/* 4. CUSTOMERS */}
             <li className="nav-item">
                 <Link className={`nav-link ${isActive('/customers')}`} to="/customers">Customers</Link>
             </li>
