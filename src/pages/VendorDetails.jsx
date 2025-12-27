@@ -51,7 +51,6 @@ function VendorDetails() {
       const v = allVendors.data.find(v => v.id === parseInt(id));
       if (v) { setVendor(v); setEditVendorForm(v); }
       
-      // NEW: Fetch product types alongside other data
       const [itemRes, transRes, agentRes, typeRes] = await Promise.all([
           api.getVendorInventory(id),
           api.getVendorTransactions(id),
@@ -119,12 +118,9 @@ function VendorDetails() {
   // Helper: Filter metals based on vendor preference
   const getAllowedMetals = () => {
     if (!vendor) return [];
-    // If vendor allows "BOTH" (or legacy value), show all product types
     if (!vendor.vendor_type || vendor.vendor_type === 'BOTH') return productTypes;
-    
-    // Otherwise, try to find the specific metal they deal in
     const specific = productTypes.filter(t => t.name === vendor.vendor_type);
-    return specific.length > 0 ? specific : productTypes; // Fallback to all if mismatch
+    return specific.length > 0 ? specific : productTypes; 
   };
 
   const initStockForm = () => {
@@ -132,7 +128,8 @@ function VendorDetails() {
     const allowed = getAllowedMetals();
     const defaultMetal = allowed.length > 0 ? allowed[0].name : 'GOLD';
 
-    setStockRows([{ metal_type: defaultMetal, stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+    // UPDATED: Include quantity: 1 in initial row
+    setStockRows([{ metal_type: defaultMetal, stock_type: 'SINGLE', quantity: 1, item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
     setBatchInvoice('');
     setViewMode('add_stock'); setPurityMode('TOUCH');
   };
@@ -140,7 +137,7 @@ function VendorDetails() {
   const handleAddRow = () => {
     const allowed = getAllowedMetals();
     const defaultMetal = allowed.length > 0 ? allowed[0].name : 'GOLD';
-    setStockRows([...stockRows, { metal_type: defaultMetal, stock_type: 'SINGLE', item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
+    setStockRows([...stockRows, { metal_type: defaultMetal, stock_type: 'SINGLE', quantity: 1, item_name: '', huid: '', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, calc_total_pure: 0 }]);
   };
   
   const removeRow = (i) => setStockRows(stockRows.filter((_, idx) => idx !== i));
@@ -180,7 +177,7 @@ function VendorDetails() {
 
   const handleFileChange = (i, file) => { const copy = [...stockRows]; copy[i].item_image = file; setStockRows(copy); };
   
-  // Helper to auto-create master items if they don't exist
+  // Helper to auto-create master items
   const autoCreateMasterItems = async (itemsToSave) => {
       const newItems = itemsToSave.filter(stockItem => {
           if (!stockItem.item_name) return false;
@@ -239,7 +236,12 @@ function VendorDetails() {
               if (item.item_image && item.item_image instanceof File) {
                   b64 = await toBase64(item.item_image);
               }
-              return { ...item, pure_weight: item.calc_total_pure, item_image_base64: b64 };
+              return { 
+                  ...item, 
+                  pure_weight: item.calc_total_pure, 
+                  item_image_base64: b64,
+                  quantity: item.stock_type === 'BULK' ? (item.quantity || 1) : 1 // SEND QUANTITY
+              };
           }));
 
           await api.addBatchInventory({ vendor_id: id, metal_type: metal, invoice_no: batchInvoice, items: processedItems });
@@ -260,7 +262,6 @@ function VendorDetails() {
     try { await api.vendorTransaction(payload); alert('Saved'); setShowRepayment(false); setRepayForm({ type: 'CASH', amount: '', rate: '', metal_weight: '', description: '' }); loadAllData(); } catch (err) { alert(err.message); }
   };
 
-  // --- TRANSACTION HELPER ---
   const getTxnBadge = (type) => {
       if(type === 'STOCK_ADDED') return <span className="fw-bold text-danger">STOCK</span>;
       if(type === 'STOCK_UPDATE') return <span className="fw-bold text-primary">UPDATE</span>;
@@ -304,7 +305,6 @@ function VendorDetails() {
                 {stockRows.map((row, i) => (
                   <tr key={i}>
                     <td>
-                        {/* DYNAMIC METAL TYPE SELECTOR */}
                         <select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>
                             {getAllowedMetals().map(type => (
                                 <option key={type.id} value={type.name}>{type.name}</option>
@@ -313,7 +313,20 @@ function VendorDetails() {
                     </td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{masterItems.filter(m => m.metal_type === row.metal_type).map((m, idx) => <option key={idx} value={m.item_name} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" style={{width:'80px'}} accept="image/*" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
-                    <td><select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)}><option value="SINGLE">Single</option><option value="BULK">Bulk</option></select></td>
+                    
+                    {/* UPDATED: Type + Quantity Field */}
+                    <td>
+                        <div className="d-flex gap-1">
+                            <select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)} style={{width: row.stock_type === 'BULK' ? '70px' : '100%'}}>
+                                <option value="SINGLE">Single</option>
+                                <option value="BULK">Bulk</option>
+                            </select>
+                            {row.stock_type === 'BULK' && (
+                                <input type="number" className="form-control form-control-sm" placeholder="Qty" value={row.quantity} onChange={e => handleRowChange(i, 'quantity', e.target.value)} style={{width: '60px'}} />
+                            )}
+                        </div>
+                    </td>
+
                     <td><input type="number" step="0.001" className="form-control form-control-sm" value={row.gross_weight} onChange={e => handleRowChange(i, 'gross_weight', e.target.value)} /></td>
                     <td><input type="text" className="form-control form-control-sm" placeholder="XXXX" value={row.huid} onChange={e => handleRowChange(i, 'huid', e.target.value)} /></td>
                     <td className="bg-warning bg-opacity-10"><input type="number" step="0.01" className="form-control form-control-sm fw-bold" placeholder={purityMode==='TOUCH'?'92':'10'} value={row.wastage_percent} onChange={e => handleRowChange(i, 'wastage_percent', e.target.value)} /></td>
@@ -370,6 +383,7 @@ function VendorDetails() {
                                         <td>
                                             <div className="fw-bold small">{item.item_name}</div>
                                             <div className="small font-monospace text-muted">{item.barcode}</div>
+                                            {item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK ({item.quantity})</span>}
                                             {item.huid && <span className="badge bg-info text-dark" style={{fontSize:'0.6rem'}}>HUID: {item.huid}</span>}
                                         </td>
                                         <td><div className="fw-bold">{item.gross_weight}g</div></td>
@@ -451,7 +465,7 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* MANAGE AGENTS MODAL */}
+      {/* Modals unchanged... */}
       {showManageAgents && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -484,7 +498,6 @@ function VendorDetails() {
          </div>
       )}
 
-      {/* EDIT VENDOR MODAL */}
       {showEditVendor && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog">
@@ -494,7 +507,6 @@ function VendorDetails() {
                      <input className="form-control mb-2" placeholder="Name" value={editVendorForm.business_name} onChange={e => setEditVendorForm({...editVendorForm, business_name: e.target.value})} />
                      <input className="form-control mb-2" placeholder="Contact" value={editVendorForm.contact_number} onChange={e => setEditVendorForm({...editVendorForm, contact_number: e.target.value})} />
                      
-                     {/* UPDATED: Dynamic Metal Type Selection */}
                      <select className="form-select mb-2" value={editVendorForm.vendor_type} onChange={e => setEditVendorForm({...editVendorForm, vendor_type: e.target.value})}>
                         <option value="BOTH">All Metals (Both)</option>
                         {productTypes.map(t => (
@@ -511,7 +523,6 @@ function VendorDetails() {
          </div>
       )}
 
-      {/* EDIT ITEM MODAL */}
       {editingItem && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
            <div className="modal-dialog">

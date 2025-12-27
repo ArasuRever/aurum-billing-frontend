@@ -3,24 +3,17 @@ import { api } from '../api';
 
 function InventoryManager() {
   const [items, setItems] = useState([]);
-  const [filterMode, setFilterMode] = useState(''); // ''=ALL, 'OWN'=Shop Stock, Number=VendorID
+  const [filterMode, setFilterMode] = useState(''); 
   const [vendors, setVendors] = useState([]);
-  const [productTypes, setProductTypes] = useState([]); // NEW: Dynamic Product Types
+  const [productTypes, setProductTypes] = useState([]); 
   
-  // Batch Add Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [batchForm, setBatchForm] = useState({
-      vendor_id: '', // can be 'OWN' or a vendor ID
-      metal_type: '', 
-      invoice_no: '',
-      items: [] 
+      vendor_id: '', metal_type: '', invoice_no: '', items: [] 
   });
-  // Temp state for single item input in the batch
-  const [tempItem, setTempItem] = useState({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '' });
+  const [tempItem, setTempItem] = useState({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '', stock_type: 'SINGLE', quantity: 1 });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
@@ -34,9 +27,7 @@ function InventoryManager() {
       
       const types = typesRes.data || [];
       setProductTypes(types);
-      if(types.length > 0) {
-           setBatchForm(prev => ({ ...prev, metal_type: types[0].name }));
-      }
+      if(types.length > 0) setBatchForm(prev => ({ ...prev, metal_type: types[0].name }));
 
     } catch (err) { console.error(err); }
   };
@@ -47,14 +38,11 @@ function InventoryManager() {
           ...batchForm,
           items: [...batchForm.items, { ...tempItem, id: Date.now() }]
       });
-      setTempItem({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '' });
+      setTempItem({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '', stock_type: 'SINGLE', quantity: 1 });
   };
 
   const handleRemoveFromBatch = (id) => {
-      setBatchForm({
-          ...batchForm,
-          items: batchForm.items.filter(i => i.id !== id)
-      });
+      setBatchForm({ ...batchForm, items: batchForm.items.filter(i => i.id !== id) });
   };
 
   const submitBatch = async () => {
@@ -81,13 +69,24 @@ function InventoryManager() {
 
   // --- FILTER LOGIC ---
   const filteredItems = items.filter(i => {
-      if (filterMode === '') return true; // All
-      if (filterMode === 'OWN') return i.source_type === 'OWN'; // Shop Owned
-      return i.vendor_id === parseInt(filterMode); // Specific Vendor
+      if (filterMode === '') return true; 
+      if (filterMode === 'OWN') return i.source_type === 'OWN'; 
+      return i.vendor_id === parseInt(filterMode);
   });
 
-  const totalGold = filteredItems.filter(i => i.metal_type === 'GOLD').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
-  const totalSilver = filteredItems.filter(i => i.metal_type === 'SILVER').reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
+  // DYNAMIC TOTALS CALCULATION
+  const getTotals = () => {
+      const typeSet = new Set([...productTypes.map(t=>t.name), ...items.map(i=>i.metal_type)]);
+      const uniqueTypes = Array.from(typeSet);
+
+      return uniqueTypes.map(type => {
+          const total = filteredItems.filter(i => i.metal_type === type).reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
+          const setting = productTypes.find(t => t.name === type);
+          return { type, total, color: setting ? setting.display_color : '#6c757d' };
+      });
+  };
+
+  const totals = getTotals();
 
   const getSourceLabel = (item) => {
       if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
@@ -98,13 +97,21 @@ function InventoryManager() {
 
   return (
     <div className="container-fluid">
-      {/* TOP CARDS */}
+      {/* DYNAMIC TOP CARDS */}
       <div className="row g-4 mb-4">
-        <div className="col-md-3"><div className="card bg-warning text-dark shadow-sm border-0"><div className="card-body"><h6 className="opacity-75">TOTAL GOLD</h6><div className="display-6 fw-bold">{totalGold}g</div></div></div></div>
-        <div className="col-md-3"><div className="card bg-secondary text-white shadow-sm border-0"><div className="card-body"><h6 className="opacity-75">TOTAL SILVER</h6><div className="display-6 fw-bold">{totalSilver}g</div></div></div></div>
+        {totals.map(t => (
+            <div className="col-md-3" key={t.type}>
+                <div className="card text-white shadow-sm border-0" style={{backgroundColor: t.color || '#6c757d'}}>
+                    <div className="card-body">
+                        <h6 className="opacity-75 text-uppercase">TOTAL {t.type}</h6>
+                        <div className="display-6 fw-bold">{t.total}g</div>
+                    </div>
+                </div>
+            </div>
+        ))}
         
-        <div className="col-md-6 d-flex align-items-end justify-content-end gap-2">
-           <div>
+        <div className="col-md-3 d-flex align-items-end justify-content-end gap-2 ms-auto">
+           <div className="flex-grow-1">
                <label className="small fw-bold text-muted">Filter Source</label>
                <select className="form-select" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
                   <option value="">All Inventory</option>
@@ -129,9 +136,12 @@ function InventoryManager() {
             <tbody>
               {filteredItems.map(item => (
                 <tr key={item.id}>
-                  <td><div className="fw-bold">{item.item_name}</div></td>
+                  <td>
+                      <div className="fw-bold">{item.item_name}</div>
+                      {item.stock_type === 'BULK' && <span className="badge bg-primary" style={{fontSize:'0.6em'}}>BULK STOCK ({item.quantity})</span>}
+                  </td>
                   <td className="small font-monospace text-muted">{item.barcode}</td>
-                  <td><span className={`badge ${item.metal_type === 'GOLD' ? 'bg-warning text-dark' : 'bg-secondary'}`}>{item.metal_type}</span></td>
+                  <td><span className="badge bg-light text-dark border">{item.metal_type}</span></td>
                   <td className="fw-bold">{item.gross_weight}g</td>
                   <td>{item.wastage_percent}%</td>
                   <td>{getSourceLabel(item)}</td>
@@ -167,7 +177,6 @@ function InventoryManager() {
                               </div>
                               <div className="col-md-4">
                                   <label className="small fw-bold">Metal Type</label>
-                                  {/* UPDATED: Dynamic Metal Selection */}
                                   <select className="form-select" value={batchForm.metal_type} onChange={e => setBatchForm({...batchForm, metal_type: e.target.value})}>
                                       {productTypes.map(type => (
                                           <option key={type.id} value={type.name}>{type.name}</option>
@@ -188,20 +197,39 @@ function InventoryManager() {
                           <div className="card bg-light border-0 p-3 mb-3">
                               <div className="row g-2 align-items-end">
                                   <div className="col-3"><label className="small">Item Name</label><input className="form-control form-control-sm" value={tempItem.item_name} onChange={e => setTempItem({...tempItem, item_name: e.target.value})} /></div>
+                                  
+                                  {/* TYPE & QUANTITY */}
+                                  <div className="col-2">
+                                      <label className="small">Type</label>
+                                      <div className="d-flex gap-1">
+                                          <select className="form-select form-select-sm" value={tempItem.stock_type} onChange={e => setTempItem({...tempItem, stock_type: e.target.value})} style={{width: tempItem.stock_type === 'BULK' ? '70px' : '100%'}}>
+                                              <option value="SINGLE">Single</option>
+                                              <option value="BULK">Bulk</option>
+                                          </select>
+                                          {tempItem.stock_type === 'BULK' && (
+                                              <input type="number" className="form-control form-control-sm" placeholder="Qty" value={tempItem.quantity} onChange={e => setTempItem({...tempItem, quantity: e.target.value})} style={{width: '50px'}} />
+                                          )}
+                                      </div>
+                                  </div>
+
                                   <div className="col-2"><label className="small">Weight (g)</label><input type="number" className="form-control form-control-sm" value={tempItem.gross_weight} onChange={e => setTempItem({...tempItem, gross_weight: e.target.value})} /></div>
                                   <div className="col-2"><label className="small">Wastage %</label><input type="number" className="form-control form-control-sm" value={tempItem.wastage_percent} onChange={e => setTempItem({...tempItem, wastage_percent: e.target.value})} /></div>
-                                  <div className="col-2"><label className="small">HUID (Opt)</label><input className="form-control form-control-sm" value={tempItem.huid} onChange={e => setTempItem({...tempItem, huid: e.target.value})} /></div>
-                                  <div className="col-3"><button className="btn btn-dark btn-sm w-100" onClick={handleAddItemToBatch}>+ Add Row</button></div>
+                                  <div className="col-1"><label className="small">HUID</label><input className="form-control form-control-sm" value={tempItem.huid} onChange={e => setTempItem({...tempItem, huid: e.target.value})} /></div>
+                                  <div className="col-2"><button className="btn btn-dark btn-sm w-100" onClick={handleAddItemToBatch}>+ Add</button></div>
                               </div>
                           </div>
 
                           {/* Preview Table */}
                           <table className="table table-sm table-bordered">
-                              <thead><tr><th>Item</th><th>Wt</th><th>Wastage</th><th>HUID</th><th>Action</th></tr></thead>
+                              <thead><tr><th>Item</th><th>Type</th><th>Wt</th><th>Wastage</th><th>HUID</th><th>Action</th></tr></thead>
                               <tbody>
                                   {batchForm.items.map(item => (
                                       <tr key={item.id}>
-                                          <td>{item.item_name}</td><td>{item.gross_weight}</td><td>{item.wastage_percent}</td><td>{item.huid}</td>
+                                          <td>{item.item_name}</td>
+                                          <td>{item.stock_type === 'BULK' ? `BULK (${item.quantity})` : 'SINGLE'}</td>
+                                          <td>{item.gross_weight}</td>
+                                          <td>{item.wastage_percent}</td>
+                                          <td>{item.huid}</td>
                                           <td><button className="btn btn-link text-danger p-0" onClick={() => handleRemoveFromBatch(item.id)}>Remove</button></td>
                                       </tr>
                                   ))}

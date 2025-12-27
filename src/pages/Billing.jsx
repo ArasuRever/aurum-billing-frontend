@@ -15,7 +15,7 @@ const printStyles = `
 function Billing() {
   const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 });
   const [masterItems, setMasterItems] = useState([]); 
-  const [businessProfile, setBusinessProfile] = useState(null); // NEW: Business Profile State
+  const [businessProfile, setBusinessProfile] = useState(null); 
   
   // --- CUSTOMER STATE ---
   const [customerSearch, setCustomerSearch] = useState('');
@@ -24,14 +24,14 @@ function Billing() {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', address: '' });
 
-  // --- ENTRY STATE (Main Billing) ---
+  // --- ENTRY STATE ---
   const [entry, setEntry] = useState({
     item_id: null, item_name: '', item_desc: '', barcode: '',
     metal_type: 'GOLD', gross_weight: '', wastage_percent: '', making_charges: '', 
     item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0
   });
 
-  // --- EXCHANGE STATE (Inline Form) ---
+  // --- EXCHANGE STATE ---
   const [exchangeEntry, setExchangeEntry] = useState({
     name: '', metal_type: 'GOLD', gross_weight: '', 
     less_percent: '', less_weight: '', net_weight: 0, 
@@ -50,8 +50,6 @@ function Billing() {
   const [payment, setPayment] = useState({ cash: '', online: '' });
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastBill, setLastBill] = useState(null);
-  
-  // --- NEW: SUCCESS MODAL STATE ---
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const searchRef = useRef(null);
@@ -61,14 +59,9 @@ function Billing() {
     styleSheet.innerText = printStyles;
     document.head.appendChild(styleSheet);
     
-    // Load Initial Data
     api.getShops().then(res => setShops(res.data)).catch(console.error);
-    api.getDailyRates().then(res => {
-        if(res.data) setRates(prev => ({ ...prev, ...res.data }));
-    }).catch(console.error);
+    api.getDailyRates().then(res => { if(res.data) setRates(prev => ({ ...prev, ...res.data })); }).catch(console.error);
     api.getMasterItems().then(res => setMasterItems(res.data)).catch(console.error);
-
-    // NEW: Load Business Settings for Invoice
     api.getBusinessSettings().then(res => setBusinessProfile(res.data)).catch(console.error);
 
     return () => document.head.removeChild(styleSheet);
@@ -140,16 +133,36 @@ function Billing() {
           }
       }
 
+      // --- BULK ITEM LOGIC ---
+      // If item is bulk, we clear the weight so the user MUST enter it manually.
+      // If item is single, we pre-fill the weight from inventory.
+      const isBulk = item.stock_type === 'BULK';
+      const weightToUse = isBulk ? '' : item.gross_weight; 
+
       performAddToCart({
-          item_id: item.id, item_name: item.item_name, barcode: item.barcode, metal_type: item.metal_type,
-          gross_weight: item.gross_weight, neighbour_id: item.neighbour_shop_id || null,
-          calc_method: method, wastage_percent: wast, making_charges: mc, fixed_price: fixed, item_image: item.item_image,
-          default_wastage: wast 
+          item_id: item.id, 
+          item_name: item.item_name, 
+          barcode: item.barcode, 
+          metal_type: item.metal_type,
+          gross_weight: weightToUse, 
+          neighbour_id: item.neighbour_shop_id || null,
+          calc_method: method, 
+          wastage_percent: wast, 
+          making_charges: mc, 
+          fixed_price: fixed, 
+          item_image: item.item_image,
+          default_wastage: wast,
+          stock_type: item.stock_type // Pass the stock type to cart
       });
   };
 
   const performAddToCart = (itemToAdd) => {
-    if (itemToAdd.item_id && cart.find(c => c.item_id === itemToAdd.item_id)) return alert("Item already in cart.");
+    // --- DUPLICATE CHECK LOGIC ---
+    // If it's a SINGLE item, block duplicates.
+    // If it's a BULK item, ALLOW duplicates (because we might sell 2.5g and 1.5g of the same bulk stock).
+    if (itemToAdd.stock_type !== 'BULK' && itemToAdd.item_id && cart.find(c => c.item_id === itemToAdd.item_id)) {
+        return alert("Single Item already in cart.");
+    }
     
     const gross = parseFloat(itemToAdd.gross_weight) || 0;
     const wastPct = parseFloat(itemToAdd.wastage_percent) || 0;
@@ -158,9 +171,15 @@ function Billing() {
     let appliedRate = itemToAdd.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
     if (itemToAdd.calc_method === 'FIXED_PRICE') appliedRate = itemToAdd.fixed_price;
 
+    // Generate unique Key for React (Bulk items share item_id but need unique list keys)
+    const uniqueKey = itemToAdd.stock_type === 'BULK' 
+        ? `${itemToAdd.item_id}-BULK-${Date.now()}` 
+        : (itemToAdd.item_id || `MANUAL-${Date.now()}`);
+
     setCart(prev => [...prev, {
       ...itemToAdd,
-      id: itemToAdd.item_id || `MANUAL-${Date.now()}`,
+      id: itemToAdd.item_id || uniqueKey, // Keep original ID for backend processing
+      unique_key: uniqueKey, // Use this for React Keys
       isManual: !itemToAdd.item_id,
       wastage_weight: wastWt,
       rate: appliedRate,
@@ -176,7 +195,6 @@ function Billing() {
     setEntry({ item_id: null, item_name: '', item_desc: '', barcode: '', metal_type: 'GOLD', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0 });
   };
 
-  // --- EDITABLE CART LOGIC ---
   const updateCartItem = (index, field, value) => {
       const newCart = [...cart];
       const item = newCart[index];
@@ -197,7 +215,6 @@ function Billing() {
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
   const clearCart = () => { if(window.confirm("Clear cart?")) { setCart([]); setPayment({cash:'', online:''}); } };
 
-  // --- CALCULATION LOGIC ---
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -211,21 +228,17 @@ function Billing() {
     return 0;
   };
 
-  // --- EXCHANGE HANDLERS ---
+  // --- EXCHANGE & TOTALS ---
   const handleExchangeEntryChange = (field, value) => {
       const newData = { ...exchangeEntry, [field]: value };
       if (field === 'metal_type') newData.rate = value === 'SILVER' ? rates.SILVER : rates.GOLD;
-      
       const gross = parseFloat(field === 'gross_weight' ? value : newData.gross_weight) || 0;
-      
       if (field === 'less_percent') newData.less_weight = (gross * (parseFloat(value || 0) / 100)).toFixed(3);
       else if (field === 'less_weight') newData.less_percent = gross > 0 ? ((parseFloat(value || 0) / gross) * 100).toFixed(2) : 0;
       else if (field === 'gross_weight') newData.less_weight = (parseFloat(value || 0) * (parseFloat(newData.less_percent || 0) / 100)).toFixed(3);
-
       const netWt = gross - (parseFloat(newData.less_weight) || 0);
       newData.net_weight = netWt > 0 ? netWt.toFixed(3) : 0;
       newData.total = Math.round(parseFloat(newData.net_weight) * (parseFloat(newData.rate) || 0));
-      
       setExchangeEntry(newData);
   };
 
@@ -239,24 +252,20 @@ function Billing() {
       const updated = [...exchangeItems];
       const item = updated[index];
       item[field] = value;
-      
       const gross = parseFloat(item.gross_weight) || 0;
       if (field === 'less_percent') item.less_weight = (gross * (parseFloat(value || 0) / 100)).toFixed(3);
       else if (field === 'less_weight') item.less_percent = gross > 0 ? ((parseFloat(value || 0) / gross) * 100).toFixed(2) : 0;
       else if (field === 'gross_weight' || field === 'rate') {
            item.less_weight = (parseFloat(item.gross_weight) * (parseFloat(item.less_percent || 0) / 100)).toFixed(3);
       }
-      
       const netWt = parseFloat(item.gross_weight || 0) - (parseFloat(item.less_weight) || 0);
       item.net_weight = netWt > 0 ? netWt.toFixed(3) : 0;
       item.total = Math.round(parseFloat(item.net_weight) * (parseFloat(item.rate) || 0));
-
       setExchangeItems(updated);
   };
 
   const removeExchangeItem = (index) => setExchangeItems(exchangeItems.filter((_, i) => i !== index));
 
-  // --- TOTALS ---
   const taxableAmount = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
   const totalDiscount = cart.reduce((acc, item) => acc + (parseFloat(item.discount) || 0), 0);
   
@@ -271,7 +280,6 @@ function Billing() {
       return 0;
   };
   const grossTotal = cart.reduce((acc, item) => acc + itemTotalNoDisc(item), 0);
-  
   const sgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
   const cgstAmount = includeGST ? (taxableAmount * 0.015) : 0;
   const billTotalWithTax = taxableAmount + sgstAmount + cgstAmount;
@@ -280,14 +288,10 @@ function Billing() {
   const netPayable = Math.round(netPayableRaw / 10) * 10;
   const roundOff = netPayable - netPayableRaw;
 
-  // --- PAYMENT CONFIRMATION LOGIC ---
   const handleConfirmSale = () => {
       if (cart.length === 0) return alert("Cart is empty");
       if (!selectedCustomer) return alert("Select Customer");
-      // Default to full cash if not set
-      if (!payment.cash && !payment.online) {
-          setPayment({ cash: netPayable, online: '' });
-      }
+      if (!payment.cash && !payment.online) { setPayment({ cash: netPayable, online: '' }); }
       setShowPaymentModal(true);
   };
 
@@ -302,12 +306,8 @@ function Billing() {
       items: cart.map(item => ({ ...item, total: Math.round(calculateItemTotal(item)) })),
       exchangeItems, 
       totals: { 
-          grossTotal, totalDiscount, taxableAmount, 
-          sgst: sgstAmount, cgst: cgstAmount, 
-          exchangeTotal, roundOff, netPayable, 
-          paidAmount: totalPaid, // Total Paid (Cash+Online)
-          cashReceived: cash, 
-          onlineReceived: online,
+          grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, 
+          exchangeTotal, roundOff, netPayable, paidAmount: totalPaid, cashReceived: cash, onlineReceived: online,
           balance: balance > 0 ? balance : 0 
       },
       includeGST
@@ -315,25 +315,14 @@ function Billing() {
 
     try {
       const res = await api.createBill(billData);
-      
-      // Store Bill and show Success Modal
       setLastBill({ invoice_id: res.data.invoice_id, date: new Date().toLocaleString(), ...billData });
-      
       setShowPaymentModal(false);
-      setShowSuccessModal(true); // <--- OPEN SUCCESS MODAL
-      
-      // Clear Cart but keep Last Bill for Preview
-      setCart([]); 
-      setExchangeItems([]); 
-      clearCustomer(); 
-      setPayment({cash:'', online:''});
-
+      setShowSuccessModal(true);
+      setCart([]); setExchangeItems([]); clearCustomer(); setPayment({cash:'', online:''});
     } catch (err) { alert(`Error: ${err.response?.data?.error || err.message}`); }
   };
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleManualAdd(); };
-
-  // Calculate Balance for Modal Preview
   const currentTotalPaid = (parseFloat(payment.cash)||0) + (parseFloat(payment.online)||0);
   const currentBalance = netPayable - currentTotalPaid;
 
@@ -341,7 +330,6 @@ function Billing() {
     <div className="container-fluid pb-5">
       <div className="row g-3">
         <div className="col-md-9">
-          
           {/* 1. CUSTOMER SEARCH */}
           <div className="row g-3 mb-3">
              {!selectedCustomer ? (
@@ -383,7 +371,6 @@ function Billing() {
           {/* 2. ADD ITEM (SEARCH & MANUAL) */}
           <div className="card shadow-sm mb-3 border-primary border-2">
             <div className="card-body py-2">
-               {/* Search Bar */}
                <div className="d-flex gap-3 mb-2 align-items-center">
                   <div className="flex-grow-1 position-relative" ref={searchRef}>
                      <div className="input-group input-group-sm"><span className="input-group-text bg-white border-end-0"><i className="bi bi-search"></i></span><input className="form-control border-start-0 ps-0 fw-bold" placeholder="Scan Barcode or Type Item Name..." value={entry.item_name} onChange={e => handleEntryChange('item_name', e.target.value)} /></div>
@@ -397,6 +384,7 @@ function Billing() {
                                     <div className="flex-grow-1 text-start">
                                         <div className="fw-bold text-dark">{item.item_name}</div>
                                         <div className="small text-muted font-monospace">{item.barcode || 'NO BARCODE'}</div>
+                                        {item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK STOCK</span>}
                                     </div>
                                     <div className="text-end">
                                         <span className="badge bg-light text-dark border">{item.gross_weight}g</span>
@@ -406,23 +394,17 @@ function Billing() {
                         </div>
                      )}
                   </div>
-                  {/* Live Rates */}
                   <div className="d-flex gap-2">
                     <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-warning text-dark fw-bold">Au</span><input className="form-control fw-bold text-primary px-1" value={rates.GOLD} disabled /></div>
                     <div className="input-group input-group-sm" style={{width:'100px'}}><span className="input-group-text bg-secondary text-white fw-bold">Ag</span><input className="form-control fw-bold text-secondary px-1" value={rates.SILVER} disabled /></div>
                   </div>
                </div>
 
-               {/* Manual Inputs */}
                <div className="row g-2 align-items-end">
                   <div className="col-md-2"><label className="small fw-bold text-muted">Metal</label><select className="form-select form-select-sm fw-bold" value={entry.metal_type} onChange={e => handleEntryChange('metal_type', e.target.value)}><option>GOLD</option><option>SILVER</option></select></div>
                   <div className="col-md-2"><label className="small fw-bold text-muted">NickID</label><input className="form-control form-control-sm" placeholder="e.g. RJ" value={entry.item_desc} onChange={e => handleEntryChange('item_desc', e.target.value)} onKeyDown={handleKeyDown} /></div>
                   <div className="col-md-2"><label className="small fw-bold text-muted">Weight</label><input type="number" className="form-control form-control-sm" placeholder="0.000" value={entry.gross_weight} onChange={e => handleEntryChange('gross_weight', e.target.value)} onKeyDown={handleKeyDown} /></div>
-                  
                   {entry.calc_method === 'STANDARD' && (<><div className="col-md-1"><label className="small fw-bold text-muted">Wst%</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.wastage_percent} onChange={e => handleEntryChange('wastage_percent', e.target.value)} onKeyDown={handleKeyDown} /></div><div className="col-md-2"><label className="small fw-bold text-muted">MC (₹)</label><input type="number" className="form-control form-control-sm" placeholder="0" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} /></div></>)}
-                  {entry.calc_method === 'RATE_ADD_ON' && (<div className="col-md-3"><label className="small fw-bold text-info">Extra/g</label><input type="number" className="form-control form-control-sm border-info" placeholder="10" value={entry.making_charges} onChange={e => handleEntryChange('making_charges', e.target.value)} onKeyDown={handleKeyDown} /></div>)}
-                  {entry.calc_method === 'FIXED_PRICE' && (<div className="col-md-3"><label className="small fw-bold text-success">Fixed/g</label><input type="number" className="form-control form-control-sm border-success fw-bold" placeholder="150" value={entry.fixed_price} onChange={e => handleEntryChange('fixed_price', e.target.value)} onKeyDown={handleKeyDown} /></div>)}
-
                   <div className="col-md-3"><button className="btn btn-primary btn-sm w-100 fw-bold" onClick={handleManualAdd}>MANUAL ADD</button></div>
                </div>
             </div>
@@ -433,55 +415,32 @@ function Billing() {
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                 <thead className="table-light small text-center">
-                  <tr>
-                    <th style={{width: '20%'}}>Item</th>
-                    <th style={{width: '8%'}}>Weight</th>
-                    <th style={{width: '18%'}}>Wastage (% / Wt)</th>
-                    <th style={{width: '10%'}}>MC / Extra</th>
-                    <th style={{width: '10%'}}>Rate</th>
-                    <th style={{width: '10%'}}>Discount</th>
-                    <th style={{width: '15%'}}>Total</th>
-                    <th style={{width: '5%'}}></th>
-                  </tr>
+                  <tr><th style={{width: '20%'}}>Item</th><th style={{width: '8%'}}>Weight</th><th style={{width: '18%'}}>Wastage</th><th style={{width: '10%'}}>MC</th><th style={{width: '10%'}}>Rate</th><th style={{width: '10%'}}>Disc</th><th style={{width: '15%'}}>Total</th><th style={{width: '5%'}}></th></tr>
                 </thead>
                 <tbody>
                   {cart.map((item, i) => (
-                    <tr key={i} className="text-center">
-                      <td className="text-start">
-                          <div className="fw-bold text-truncate">{item.item_name}</div>
-                          {item.calc_method !== 'STANDARD' && <span className="badge bg-info text-dark" style={{fontSize:'0.6em'}}>{item.calc_method.replace('_',' ')}</span>}
+                    <tr key={item.unique_key || i} className="text-center">
+                      <td className="text-start"><div className="fw-bold text-truncate">{item.item_name}</div></td>
+                      
+                      {/* EDITABLE WEIGHT FOR BULK ITEMS */}
+                      <td className="fw-bold">
+                          {item.stock_type === 'BULK' ? (
+                             <input type="number" className="form-control form-control-sm text-center fw-bold border-primary" 
+                                placeholder="Wt" value={item.gross_weight} onChange={e => updateCartItem(i, 'gross_weight', e.target.value)} autoFocus />
+                          ) : (
+                             item.gross_weight
+                          )}
                       </td>
-                      <td className="fw-bold">{item.gross_weight}</td>
-                      {item.calc_method === 'STANDARD' ? (
-                          <td>
-                              <div className="input-group input-group-sm">
-                                  <input type="number" className="form-control text-center px-1" placeholder="%" 
-                                      value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} 
-                                      title={`Default: ${item.default_wastage || 0}%`}
-                                  />
-                                  <input type="number" className="form-control text-center px-1 bg-light" placeholder="Wt"
-                                      value={item.wastage_weight} onChange={e => updateCartItem(i, 'wastage_weight', e.target.value)} 
-                                  />
-                              </div>
-                              {item.default_wastage && <div style={{fontSize:'0.6rem'}} className="text-muted mt-1">Default: {item.default_wastage}%</div>}
-                          </td>
-                      ) : (
-                          <td className="text-muted">-</td>
-                      )}
+
                       <td>
-                          {item.calc_method === 'FIXED_PRICE' ? <span className="text-muted">Fixed</span> : 
-                            <input type="number" className="form-control form-control-sm text-center" 
-                                value={item.making_charges} onChange={e => updateCartItem(i, 'making_charges', e.target.value)} />
-                          }
+                          <div className="input-group input-group-sm">
+                              <input type="number" className="form-control text-center px-1" placeholder="%" value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} />
+                              <input type="number" className="form-control text-center px-1 bg-light" placeholder="Wt" value={item.wastage_weight} onChange={e => updateCartItem(i, 'wastage_weight', e.target.value)} />
+                          </div>
                       </td>
-                      <td>
-                           <input type="number" className="form-control form-control-sm text-center fw-bold text-primary" 
-                                value={item.rate} onChange={e => updateCartItem(i, 'rate', e.target.value)} />
-                      </td>
-                      <td>
-                          <input type="number" className="form-control form-control-sm text-center text-danger fw-bold" 
-                                placeholder="0" value={item.discount} onChange={e => updateCartItem(i, 'discount', e.target.value)} />
-                      </td>
+                      <td><input type="number" className="form-control form-control-sm text-center" value={item.making_charges} onChange={e => updateCartItem(i, 'making_charges', e.target.value)} /></td>
+                      <td><input type="number" className="form-control form-control-sm text-center fw-bold text-primary" value={item.rate} onChange={e => updateCartItem(i, 'rate', e.target.value)} /></td>
+                      <td><input type="number" className="form-control form-control-sm text-center text-danger fw-bold" placeholder="0" value={item.discount} onChange={e => updateCartItem(i, 'discount', e.target.value)} /></td>
                       <td className="fw-bold text-success">{Math.round(calculateItemTotal(item)).toLocaleString()}</td>
                       <td><button className="btn btn-sm text-danger" onClick={() => removeFromCart(i)}><i className="bi bi-x-lg"></i></button></td>
                     </tr>
@@ -492,7 +451,7 @@ function Billing() {
             </div>
           </div>
 
-          {/* 4. OLD ITEM EXCHANGE */}
+          {/* 4. OLD ITEM EXCHANGE (Unchanged) */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-2"><span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Old Item Exchange</span></div>
              <div className="card-body p-0">
@@ -505,11 +464,7 @@ function Billing() {
                             {exchangeItems.map((item, i) => (
                                 <tr key={item.id}>
                                     <td><input className="form-control form-control-sm" value={item.name} onChange={e => updateExchangeItem(i, 'name', e.target.value)} /></td>
-                                    <td>
-                                        <select className="form-select form-select-sm" value={item.metal_type} onChange={e => updateExchangeItem(i, 'metal_type', e.target.value)}>
-                                            <option value="GOLD">GOLD</option><option value="SILVER">SILVER</option>
-                                        </select>
-                                    </td>
+                                    <td><select className="form-select form-select-sm" value={item.metal_type} onChange={e => updateExchangeItem(i, 'metal_type', e.target.value)}><option value="GOLD">GOLD</option><option value="SILVER">SILVER</option></select></td>
                                     <td><input type="number" className="form-control form-control-sm" style={{width:'80px'}} value={item.gross_weight} onChange={e => updateExchangeItem(i, 'gross_weight', e.target.value)} /></td>
                                     <td><input type="number" className="form-control form-control-sm text-danger" style={{width:'60px'}} value={item.less_percent} onChange={e => updateExchangeItem(i, 'less_percent', e.target.value)} /></td>
                                     <td><input type="number" className="form-control form-control-sm text-danger" style={{width:'70px'}} value={item.less_weight} onChange={e => updateExchangeItem(i, 'less_weight', e.target.value)} /></td>
@@ -521,11 +476,7 @@ function Billing() {
                             ))}
                             <tr className="bg-white">
                                 <td><input className="form-control form-control-sm" placeholder="New Item..." value={exchangeEntry.name} onChange={e => handleExchangeEntryChange('name', e.target.value)} /></td>
-                                <td>
-                                    <select className="form-select form-select-sm" value={exchangeEntry.metal_type} onChange={e => handleExchangeEntryChange('metal_type', e.target.value)}>
-                                        <option value="GOLD">GOLD</option><option value="SILVER">SILVER</option>
-                                    </select>
-                                </td>
+                                <td><select className="form-select form-select-sm" value={exchangeEntry.metal_type} onChange={e => handleExchangeEntryChange('metal_type', e.target.value)}><option value="GOLD">GOLD</option><option value="SILVER">SILVER</option></select></td>
                                 <td><input type="number" className="form-control form-control-sm" placeholder="Wt" value={exchangeEntry.gross_weight} onChange={e => handleExchangeEntryChange('gross_weight', e.target.value)} /></td>
                                 <td><input type="number" className="form-control form-control-sm" placeholder="%" value={exchangeEntry.less_percent} onChange={e => handleExchangeEntryChange('less_percent', e.target.value)} /></td>
                                 <td><input type="number" className="form-control form-control-sm" placeholder="Less" value={exchangeEntry.less_weight} onChange={e => handleExchangeEntryChange('less_weight', e.target.value)} /></td>
@@ -558,10 +509,8 @@ function Billing() {
                             <small className="text-muted text-uppercase d-block mb-1">Net Payable</small>
                             <h2 className="text-success fw-bold display-6 mb-0">₹{netPayable.toLocaleString()}</h2>
                         </div>
-                        
                         <div className="form-check form-switch mb-3 text-center"><input className="form-check-input float-none me-2" type="checkbox" checked={includeGST} onChange={e => setIncludeGST(e.target.checked)} /><label className="form-check-label small fw-bold">Include GST Bill</label></div>
                         <div className="d-grid gap-2">
-                            {/* CHANGED: Open Payment Modal instead of direct save */}
                             <button className="btn btn-success py-2 fw-bold shadow-sm" onClick={handleConfirmSale}><i className="bi bi-check-circle-fill me-2"></i> CONFIRM SALE</button>
                             <button className="btn btn-outline-danger btn-sm" onClick={clearCart}>Clear Cart</button>
                         </div>
@@ -597,41 +546,13 @@ function Billing() {
                         <button className="btn-close btn-close-white" onClick={() => setShowPaymentModal(false)}></button>
                     </div>
                     <div className="modal-body">
-                        {/* Mini Summary */}
-                        <div className="card bg-light border-0 mb-3">
-                            <div className="card-body text-center py-2">
-                                <small className="text-muted">Total Payable Amount</small>
-                                <h2 className="text-success fw-bold m-0">₹{netPayable.toLocaleString()}</h2>
-                            </div>
-                        </div>
-
-                        {/* Split Inputs */}
-                        <div className="mb-3">
-                            <label className="form-label fw-bold small text-muted">Cash Received</label>
-                            <div className="input-group">
-                                <span className="input-group-text">₹</span>
-                                <input type="number" className="form-control fw-bold" value={payment.cash} onChange={e => setPayment({...payment, cash: e.target.value})} autoFocus />
-                            </div>
-                        </div>
-                        <div className="mb-3">
-                             <label className="form-label fw-bold small text-muted">Online Payment</label>
-                             <div className="input-group">
-                                 <span className="input-group-text">₹</span>
-                                 <input type="number" className="form-control fw-bold" value={payment.online} onChange={e => setPayment({...payment, online: e.target.value})} />
-                             </div>
-                        </div>
-
-                        {/* Dynamic Balance */}
-                        <div className={`alert ${currentBalance > 0 ? 'alert-danger' : 'alert-success'} d-flex justify-content-between align-items-center mb-0`}>
-                            <span className="fw-bold small">{currentBalance > 0 ? 'BALANCE PENDING (CREDIT)' : 'FULL PAYMENT DONE'}</span>
-                            <span className="fw-bold fs-5">₹{currentBalance > 0 ? currentBalance.toLocaleString() : '0'}</span>
-                        </div>
+                        <div className="card bg-light border-0 mb-3"><div className="card-body text-center py-2"><small className="text-muted">Total Payable Amount</small><h2 className="text-success fw-bold m-0">₹{netPayable.toLocaleString()}</h2></div></div>
+                        <div className="mb-3"><label className="form-label fw-bold small text-muted">Cash Received</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.cash} onChange={e => setPayment({...payment, cash: e.target.value})} autoFocus /></div></div>
+                        <div className="mb-3"><label className="form-label fw-bold small text-muted">Online Payment</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.online} onChange={e => setPayment({...payment, online: e.target.value})} /></div></div>
+                        <div className={`alert ${currentBalance > 0 ? 'alert-danger' : 'alert-success'} d-flex justify-content-between align-items-center mb-0`}><span className="fw-bold small">{currentBalance > 0 ? 'BALANCE PENDING (CREDIT)' : 'FULL PAYMENT DONE'}</span><span className="fw-bold fs-5">₹{currentBalance > 0 ? currentBalance.toLocaleString() : '0'}</span></div>
                         {currentBalance > 0 && <small className="text-danger d-block mt-1 text-center">* This amount will be added to Customer's Pending Balance</small>}
                     </div>
-                    <div className="modal-footer">
-                        <button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Back</button>
-                        <button className="btn btn-success fw-bold px-4" onClick={finalizeBill}>GENERATE BILL & PRINT</button>
-                    </div>
+                    <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Back</button><button className="btn btn-success fw-bold px-4" onClick={finalizeBill}>GENERATE BILL & PRINT</button></div>
                 </div>
              </div>
           </div>
@@ -643,19 +564,12 @@ function Billing() {
            <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content border-0 shadow-lg">
                  <div className="modal-body text-center p-5">
-                     <div className="mb-3">
-                        <i className="bi bi-check-circle-fill text-success" style={{fontSize: '4rem'}}></i>
-                     </div>
+                     <div className="mb-3"><i className="bi bi-check-circle-fill text-success" style={{fontSize: '4rem'}}></i></div>
                      <h3 className="fw-bold text-dark">Sale Successful!</h3>
                      <p className="text-muted">Sold to <strong className="text-primary">{lastBill.customer.name}</strong></p>
-                     
                      <div className="d-grid gap-3 mt-4">
-                        <button className="btn btn-outline-dark fw-bold py-2" onClick={() => { setShowSuccessModal(false); setShowInvoice(true); }}>
-                            <i className="bi bi-file-earmark-text me-2"></i>View Bill & Print
-                        </button>
-                        <button className="btn btn-primary fw-bold py-2" onClick={() => setShowSuccessModal(false)}>
-                            <i className="bi bi-plus-lg me-2"></i>Start New Sale
-                        </button>
+                        <button className="btn btn-outline-dark fw-bold py-2" onClick={() => { setShowSuccessModal(false); setShowInvoice(true); }}><i className="bi bi-file-earmark-text me-2"></i>View Bill & Print</button>
+                        <button className="btn btn-primary fw-bold py-2" onClick={() => setShowSuccessModal(false)}><i className="bi bi-plus-lg me-2"></i>Start New Sale</button>
                      </div>
                  </div>
               </div>
@@ -663,15 +577,13 @@ function Billing() {
         </div>
       )}
 
-      {/* INVOICE PREVIEW - UPDATED: Passes businessProfile to InvoiceTemplate */}
+      {/* INVOICE PREVIEW */}
       {showInvoice && lastBill && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1050}}>
            <div className="modal-dialog modal-lg">
               <div className="modal-content" style={{height: '90vh'}}>
                  <div className="modal-header bg-dark text-white"><h5 className="modal-title">Invoice Preview</h5><button className="btn-close btn-close-white" onClick={() => setShowInvoice(false)}></button></div>
-                 <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10">
-                    <InvoiceTemplate data={lastBill} businessProfile={businessProfile} />
-                 </div>
+                 <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10"><InvoiceTemplate data={lastBill} businessProfile={businessProfile} /></div>
                  <div className="modal-footer bg-light"><button className="btn btn-secondary" onClick={() => setShowInvoice(false)}>Close</button><button className="btn btn-primary fw-bold" onClick={() => window.print()}><i className="bi bi-printer me-2"></i>PRINT INVOICE</button></div>
               </div>
            </div>
