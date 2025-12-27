@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react'; // Added useContext
 import { api } from '../api';
+import { BusinessContext } from '../context/BusinessContext'; // Added Context Import
 
 function SettingsPage() {
+  const { refreshSettings } = useContext(BusinessContext); // Access Context Function
   const [activeMainTab, setActiveMainTab] = useState('PRODUCT');
 
   // --- PRODUCT CONFIG STATE ---
@@ -41,8 +43,6 @@ function SettingsPage() {
     try {
         const [typesRes, itemsRes, ratesRes] = await Promise.all([api.getProductTypes(), api.getMasterItems(), api.getDailyRates()]);
         
-        // FIX: Removed the manual fallback that caused the "disappearing tabs" bug.
-        // We now rely 100% on the database response.
         let types = typesRes.data || [];
         
         setProductTypes(types); 
@@ -121,12 +121,22 @@ function SettingsPage() {
   };
 
   const handleLogoChange = (e) => { const file = e.target.files[0]; if(file) { setBizLogo(file); setBizLogoPreview(URL.createObjectURL(file)); } };
+  
+  // --- UPDATED SAVE FUNCTION ---
   const saveBusinessProfile = async () => {
       if(!bizForm.business_name) return alert("Business Name Required");
       const formData = new FormData();
       Object.keys(bizForm).forEach(key => formData.append(key, bizForm[key]));
       if (bizLogo) formData.append('logo', bizLogo);
-      try { await api.saveBusinessSettings(formData); alert("Saved!"); loadBusinessSettings(); } catch(e) { alert(e.message); }
+      
+      try { 
+          await api.saveBusinessSettings(formData); 
+          await refreshSettings(); // <--- REFRESH NAVBAR CONTEXT
+          alert("Saved!"); 
+          loadBusinessSettings(); 
+      } catch(e) { 
+          alert(e.message); 
+      }
   };
 
   // Live Search Filter

@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useContext } from 'react'; // Added useContext
 import { Link, useLocation } from 'react-router-dom';
+import { BusinessContext } from '../context/BusinessContext'; // Added Context Import
 
 function Navbar() {
   const location = useLocation();
-  
+  const { settings } = useContext(BusinessContext); // Get Dynamic Settings
+
   // Helper to highlight the main dropdown parent if any child is active
   const isDropdownActive = (paths) => {
       // Handle root path '/' specifically
@@ -16,9 +18,21 @@ function Navbar() {
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
       <div className="container-fluid">
-        <Link className="navbar-brand fw-bold" to="/">
-          <i className="bi bi-gem me-2"></i>AURUM BILLING
+        <Link className="navbar-brand fw-bold d-flex align-items-center" to="/">
+           {/* --- DYNAMIC BRANDING START --- */}
+           {settings.logo ? (
+             <img 
+               src={settings.logo} 
+               alt="Logo" 
+               style={{height: '35px', marginRight: '10px', borderRadius:'4px', border:'1px solid #555'}} 
+             />
+           ) : (
+             <i className="bi bi-gem me-2 text-warning"></i>
+           )}
+           <span style={{letterSpacing: '1px'}}>{settings.name.toUpperCase()}</span>
+           {/* --- DYNAMIC BRANDING END --- */}
         </Link>
+
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
           <span className="navbar-toggler-icon"></span>
         </button>
