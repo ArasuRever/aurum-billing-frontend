@@ -211,7 +211,6 @@ function OldMetalPage() {
             setHistory(history.filter(h => h.id !== id));
             loadData();
         } catch (error) {
-            // Error handling for locked items
             alert("Failed to delete: " + (error.response?.data?.message || error.message));
         }
      }
@@ -336,19 +335,21 @@ function OldMetalPage() {
                           <th>Voucher</th>
                           <th>Customer</th>
                           <th>Item</th>
+                          <th>Gross Wt</th>
                           <th>Net Weight</th>
                           <th className="text-end">Amount Paid</th>
                           <th className="text-center">Actions</th>
                       </tr>
                   </thead>
                   <tbody>
-                      {loading ? <tr><td colSpan="7" className="text-center py-4">Loading...</td></tr> : 
+                      {loading ? <tr><td colSpan="8" className="text-center py-4">Loading...</td></tr> : 
                        history.map((row, i) => (
                           <tr key={i}>
                               <td className="small text-muted">{new Date(row.date).toLocaleDateString()}</td>
                               <td className="small font-monospace">{row.voucher_no || '-'}</td>
                               <td><div className="fw-bold">{row.customer_name}</div><div className="small text-muted">{row.mobile}</div></td>
                               <td>{row.item_name} <span className={`badge ms-1 ${row.metal_type==='GOLD'?'bg-warning text-dark':'bg-secondary'}`}>{row.metal_type}</span></td>
+                              <td className="fw-bold">{parseFloat(row.gross_weight).toFixed(3)}g</td>
                               <td className="fw-bold">{parseFloat(row.net_weight).toFixed(3)}g</td>
                               <td className="text-end fw-bold text-danger">
                                   - ₹{formatCurrency(row.net_payout || row.amount)}
@@ -357,7 +358,6 @@ function OldMetalPage() {
                                   }
                               </td>
                               <td className="text-center">
-                                  {/* --- LOCK LOGIC HERE --- */}
                                   {row.status === 'AVAILABLE' ? (
                                       <>
                                         <button className="btn btn-sm btn-link text-primary" onClick={() => handleEditHistory(row)}><i className="bi bi-pencil"></i></button>

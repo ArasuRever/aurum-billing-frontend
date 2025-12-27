@@ -2,97 +2,157 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 
 function RefineryManager() {
-  const [activeTab, setActiveTab] = useState('pending'); 
+  const [activeTab, setActiveTab] = useState('pending'); // 'pending' or 'batches'
   const [metalType, setMetalType] = useState('GOLD');
   const [pendingItems, setPendingItems] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [vendors, setVendors] = useState([]);
 
+  // Selection
   const [selectedIds, setSelectedIds] = useState({});
+  const [selectedBatch, setSelectedBatch] = useState(null);
+
+  // Modals
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [showUseModal, setShowUseModal] = useState(false);
   
-  const [selectedBatch, setSelectedBatch] = useState(null);
-  const [manualWeight, setManualWeight] = useState('');
-  const [receiveForm, setReceiveForm] = useState({ refined_weight: '', touch_percent: '', report_no: '', file: null });
-  const [useForm, setUseForm] = useState({ usage_type: 'ADD_TO_INVENTORY', vendor_id: '', weight_to_use: '' });
+  // NEW: History Modal State
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyItems, setHistoryItems] = useState([]);
 
-  useEffect(() => { loadData(); api.getVendors().then(res => setVendors(res.data)).catch(console.error); }, [activeTab, metalType]);
+  // Forms
+  const [receiveForm, setReceiveForm] = useState({ refined_weight: '', pure_weight: '' });
+  const [useForm, setUseForm] = useState({ item_name: '', use_weight: '' });
+
+  useEffect(() => { loadData(); }, [activeTab, metalType]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'pending') { const res = await api.getPendingScrap(metalType); setPendingItems(res.data); } 
-      else { const res = await api.getRefineryBatches(); setBatches(res.data); }
+        if (activeTab === 'pending') {
+            const res = await api.getPendingScrap(metalType);
+            setPendingItems(res.data);
+        } else {
+            const res = await api.getRefineryBatches();
+            setBatches(res.data);
+        }
     } catch (err) { console.error(err); }
-    setLoading(false);
+    finally { setLoading(false); }
   };
 
-  const handleSelection = (id) => { setSelectedIds(prev => ({ ...prev, [id]: !prev[id] })); };
-  const calculateSelectedTotal = () => pendingItems.filter(i => selectedIds[i.id]).reduce((sum, i) => sum + parseFloat(i.net_weight), 0);
-
-  const handleCreateBatch = async () => {
-    const ids = Object.keys(selectedIds).filter(k => selectedIds[k]).map(Number);
-    if (ids.length === 0 && !manualWeight) return alert("Select items or enter manual weight");
-    if(!window.confirm("Confirm?")) return;
-    try {
-      await api.createRefineryBatch({ metal_type: metalType, selected_item_ids: ids, manual_weight: manualWeight || 0 });
-      alert("Sent!"); setShowBatchModal(false); setManualWeight(''); setSelectedIds({}); loadData();
-    } catch (err) { alert(err.message); }
+  const handleSelectAll = (e) => {
+      if (e.target.checked) {
+          const ids = {};
+          pendingItems.forEach(i => ids[i.id] = true);
+          setSelectedIds(ids);
+      } else {
+          setSelectedIds({});
+      }
   };
 
-  const handleReceiveGold = async () => {
-    const formData = new FormData();
-    formData.append('batch_id', selectedBatch.id);
-    formData.append('refined_weight', receiveForm.refined_weight);
-    formData.append('touch_percent', receiveForm.touch_percent);
-    formData.append('report_no', receiveForm.report_no);
-    if (receiveForm.file) formData.append('report_image', receiveForm.file);
-    try { await api.receiveRefinedGold(formData); alert("Saved!"); setShowReceiveModal(false); loadData(); } catch (err) { alert("Error: " + err.message); }
+  const toggleSelect = (id) => setSelectedIds(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const calculateTotal = () => {
+      return pendingItems.filter(i => selectedIds[i.id]).reduce((sum, i) => sum + parseFloat(i.net_weight), 0).toFixed(3);
   };
 
-  const handleUseStock = async () => {
-    try { await api.useRefinedStock({ batch_id: selectedBatch.id, ...useForm }); alert("Done!"); setShowUseModal(false); loadData(); } catch (err) { alert("Error: " + err.response?.data?.error); }
+  const createBatch = async () => {
+      const item_ids = Object.keys(selectedIds).filter(id => selectedIds[id]).map(id => parseInt(id));
+      if (item_ids.length === 0) return alert("Select items first");
+      if (!window.confirm(`Create batch with ${item_ids.length} items? Total: ${calculateTotal()}g`)) return;
+
+      try {
+          await api.createRefineryBatch({ metal_type: metalType, item_ids });
+          alert("Batch Sent to Refinery!");
+          setSelectedIds({});
+          loadData();
+      } catch(err) { alert(err.message); }
+  };
+
+  const receiveGold = async () => {
+      try {
+          await api.receiveRefinedGold({ 
+              batch_id: selectedBatch.id, 
+              refined_weight: receiveForm.refined_weight, 
+              pure_weight: receiveForm.pure_weight 
+          });
+          alert("Gold Received!");
+          setShowReceiveModal(false);
+          loadData();
+      } catch(err) { alert(err.message); }
+  };
+
+  const useStock = async () => {
+      try {
+          await api.useRefinedStock({
+              batch_id: selectedBatch.id,
+              use_weight: useForm.use_weight,
+              item_name: useForm.item_name,
+              metal_type: selectedBatch.metal_type
+          });
+          alert("Stock Used / Added to Inventory!");
+          setShowUseModal(false);
+          loadData();
+      } catch(err) { alert(err.message); }
+  };
+
+  // NEW: View History Function
+  const handleViewHistory = async (batch) => {
+      setSelectedBatch(batch);
+      try {
+          const res = await api.getBatchItems(batch.id);
+          setHistoryItems(res.data);
+          setShowHistoryModal(true);
+      } catch (err) { alert(err.message); }
   };
 
   return (
     <div className="container-fluid py-4">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h3 className="fw-bold text-secondary">Refinery Manager</h3>
-        <div className="btn-group">
-           <button className={`btn ${activeTab==='pending'?'btn-primary':'btn-outline-primary'}`} onClick={()=>setActiveTab('pending')}>Pending</button>
-           <button className={`btn ${activeTab==='batches'?'btn-primary':'btn-outline-primary'}`} onClick={()=>setActiveTab('batches')}>Batches</button>
-        </div>
+          <h4 className="fw-bold text-dark"><i className="bi bi-fire me-2 text-danger"></i>Refinery Manager</h4>
+          <div className="btn-group">
+              <button className={`btn fw-bold ${activeTab==='pending'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setActiveTab('pending')}>Pending Scrap</button>
+              <button className={`btn fw-bold ${activeTab==='batches'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setActiveTab('batches')}>Batches History</button>
+          </div>
       </div>
 
       {activeTab === 'pending' && (
-        <div className="card shadow-sm border-0">
-           <div className="card-header bg-white d-flex justify-content-between align-items-center py-3">
-              <select className="form-select w-auto fw-bold" value={metalType} onChange={e=>setMetalType(e.target.value)}><option value="GOLD">GOLD</option><option value="SILVER">SILVER</option></select>
-              <div className="d-flex align-items-center gap-3">
-                 <div className="text-end"><div className="small text-muted">Selected</div><div className="fw-bold fs-5">{calculateSelectedTotal().toFixed(3)} g</div></div>
-                 <button className="btn btn-danger fw-bold" onClick={()=>setShowBatchModal(true)}>CREATE BATCH</button>
+          <div className="card shadow-sm border-0">
+              <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                  <div className="btn-group">
+                      <button className={`btn btn-sm ${metalType==='GOLD'?'btn-warning':'btn-outline-secondary'}`} onClick={()=>setMetalType('GOLD')}>GOLD</button>
+                      <button className={`btn btn-sm ${metalType==='SILVER'?'btn-secondary':'btn-outline-secondary'}`} onClick={()=>setMetalType('SILVER')}>SILVER</button>
+                  </div>
+                  <div className="d-flex align-items-center gap-3">
+                      <h5 className="m-0">Selected: <strong>{calculateTotal()} g</strong></h5>
+                      <button className="btn btn-danger fw-bold" onClick={createBatch}>Send to Refinery <i className="bi bi-arrow-right"></i></button>
+                  </div>
               </div>
-           </div>
-           <div className="table-responsive">
-             <table className="table table-hover align-middle mb-0">
-               <thead className="table-light"><tr><th style={{width:'50px'}}>#</th><th>Date</th><th>Item</th><th>Voucher</th><th className="text-end">Wt</th></tr></thead>
-               <tbody>
-                 {pendingItems.map(item => (
-                   <tr key={item.id} onClick={() => handleSelection(item.id)} className={selectedIds[item.id] ? 'table-warning' : ''} style={{cursor:'pointer'}}>
-                     <td><input type="checkbox" checked={!!selectedIds[item.id]} readOnly /></td>
-                     <td>{new Date(item.date).toLocaleDateString()}</td>
-                     <td>{item.item_name}</td>
-                     <td className="font-monospace">{item.voucher_no}</td>
-                     <td className="text-end fw-bold">{item.net_weight} g</td>
-                   </tr>
-                 ))}
-               </tbody>
-             </table>
-           </div>
-        </div>
+              <div className="table-responsive">
+                  <table className="table table-hover align-middle mb-0">
+                      <thead className="table-light">
+                          <tr>
+                              <th style={{width:'40px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} /></th>
+                              <th>Item Name</th><th>Weight</th><th>Purity</th><th>Status</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          {pendingItems.length === 0 && <tr><td colSpan="5" className="text-center py-4 text-muted">No pending scrap found.</td></tr>}
+                          {pendingItems.map(item => (
+                              <tr key={item.id} className={selectedIds[item.id] ? 'table-warning' : ''}>
+                                  <td className="text-center"><input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={()=>toggleSelect(item.id)} /></td>
+                                  <td>{item.item_name}</td>
+                                  <td className="fw-bold">{item.net_weight} g</td>
+                                  <td>{item.purity}%</td>
+                                  <td><span className="badge bg-success">AVAILABLE</span></td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
       )}
 
       {activeTab === 'batches' && (
@@ -105,8 +165,16 @@ function RefineryManager() {
                         <span className="badge bg-secondary">{batch.batch_no}</span>
                         <span className={`badge ${batch.status==='SENT'?'bg-warning text-dark': batch.status==='REFINED'?'bg-primary':'bg-success'}`}>{batch.status}</span>
                      </div>
+                     
                      <div className="d-flex justify-content-between mb-1"><span className="text-muted small">Sent:</span><span className="fw-bold">{batch.gross_weight} g</span></div>
                      
+                     {/* VIEW HISTORY BUTTON */}
+                     <div className="text-center mb-3">
+                         <button className="btn btn-link btn-sm text-decoration-none" onClick={() => handleViewHistory(batch)}>
+                             <i className="bi bi-eye me-1"></i> View {batch.items_count} Items History
+                         </button>
+                     </div>
+
                      {batch.status !== 'SENT' && (
                         <div className="bg-light p-2 rounded mb-3 small">
                            <div className="d-flex justify-content-between"><span>Refined:</span> <strong>{batch.refined_weight} g</strong></div>
@@ -114,6 +182,7 @@ function RefineryManager() {
                            <div className="d-flex justify-content-between text-success"><span>Available:</span> <strong>{(parseFloat(batch.pure_weight) - (parseFloat(batch.used_weight)||0)).toFixed(3)} g</strong></div>
                         </div>
                      )}
+                     
                      {batch.status === 'SENT' && <button className="btn btn-outline-primary w-100" onClick={()=>{setSelectedBatch(batch); setShowReceiveModal(true);}}>Receive Gold</button>}
                      {batch.status === 'REFINED' && <button className="btn btn-outline-success w-100" onClick={()=>{setSelectedBatch(batch); setShowUseModal(true);}}>Use Stock</button>}
                   </div>
@@ -123,61 +192,83 @@ function RefineryManager() {
         </div>
       )}
 
-      {showBatchModal && (
-        <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-           <div className="modal-dialog">
-              <div className="modal-content">
-                 <div className="modal-header"><h5 className="modal-title">Confirm Batch</h5><button className="btn-close" onClick={()=>setShowBatchModal(false)}></button></div>
-                 <div className="modal-body">
-                    <p>Selected: <strong>{calculateSelectedTotal().toFixed(3)} g</strong></p>
-                    <label className="form-label">Add Manual Weight</label>
-                    <input type="number" className="form-control" value={manualWeight} onChange={e=>setManualWeight(e.target.value)} />
-                 </div>
-                 <div className="modal-footer"><button className="btn btn-danger" onClick={handleCreateBatch}>Send</button></div>
-              </div>
-           </div>
-        </div>
-      )}
-
+      {/* RECEIVE MODAL */}
       {showReceiveModal && (
-        <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-           <div className="modal-dialog">
-              <div className="modal-content">
-                 <div className="modal-header"><h5 className="modal-title">Receive Gold</h5><button className="btn-close" onClick={()=>setShowReceiveModal(false)}></button></div>
-                 <div className="modal-body">
-                    <input type="number" className="form-control mb-2" placeholder="Refined Weight" value={receiveForm.refined_weight} onChange={e=>setReceiveForm({...receiveForm, refined_weight:e.target.value})} />
-                    <input type="number" className="form-control mb-2" placeholder="Touch %" value={receiveForm.touch_percent} onChange={e=>setReceiveForm({...receiveForm, touch_percent:e.target.value})} />
-                 </div>
-                 <div className="modal-footer"><button className="btn btn-success" onClick={handleReceiveGold}>Save</button></div>
+          <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog">
+                  <div className="modal-content">
+                      <div className="modal-header"><h5 className="modal-title">Receive Gold</h5><button className="btn-close" onClick={()=>setShowReceiveModal(false)}></button></div>
+                      <div className="modal-body">
+                          <div className="mb-3"><label>Total Refined Wt</label><input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, refined_weight:e.target.value})} /></div>
+                          <div className="mb-3"><label>Total Pure Wt (24k)</label><input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, pure_weight:e.target.value})} /></div>
+                          <button className="btn btn-primary w-100" onClick={receiveGold}>Save</button>
+                      </div>
+                  </div>
               </div>
-           </div>
-        </div>
+          </div>
       )}
 
+      {/* USE STOCK MODAL */}
       {showUseModal && (
-         <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-           <div className="modal-dialog">
-              <div className="modal-content">
-                 <div className="modal-header"><h5 className="modal-title">Use Stock</h5><button className="btn-close" onClick={()=>setShowUseModal(false)}></button></div>
-                 <div className="modal-body">
-                    <select className="form-select mb-3" value={useForm.usage_type} onChange={e=>setUseForm({...useForm, usage_type:e.target.value})}>
-                        <option value="ADD_TO_INVENTORY">Add to Inventory</option>
-                        <option value="PAY_VENDOR">Pay Vendor</option>
-                    </select>
-                    <input type="number" className="form-control mb-3" placeholder="Weight to Use" value={useForm.weight_to_use} onChange={e=>setUseForm({...useForm, weight_to_use:e.target.value})} />
-                    {useForm.usage_type === 'PAY_VENDOR' && (
-                        <select className="form-select" value={useForm.vendor_id} onChange={e=>setUseForm({...useForm, vendor_id:e.target.value})}>
-                            <option value="">Select Vendor</option>
-                            {vendors.map(v => <option key={v.id} value={v.id}>{v.name} ({v.balance_pure_weight}g)</option>)}
-                        </select>
-                    )}
-                 </div>
-                 <div className="modal-footer"><button className="btn btn-primary" onClick={handleUseStock}>Process</button></div>
+          <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog">
+                  <div className="modal-content">
+                      <div className="modal-header"><h5 className="modal-title">Use Refined Stock</h5><button className="btn-close" onClick={()=>setShowUseModal(false)}></button></div>
+                      <div className="modal-body">
+                          <div className="mb-3"><label>Item Name (for Inventory)</label><input className="form-control" placeholder="e.g. 24k Bar" onChange={e=>setUseForm({...useForm, item_name:e.target.value})} /></div>
+                          <div className="mb-3"><label>Weight to Use</label><input className="form-control" type="number" onChange={e=>setUseForm({...useForm, use_weight:e.target.value})} /></div>
+                          <button className="btn btn-success w-100" onClick={useStock}>Add to Inventory</button>
+                      </div>
+                  </div>
               </div>
-           </div>
-        </div>
+          </div>
       )}
+
+      {/* HISTORY MODAL (NEW) */}
+      {showHistoryModal && selectedBatch && (
+          <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog modal-lg">
+                  <div className="modal-content">
+                      <div className="modal-header bg-light">
+                          <h5 className="modal-title">Batch Content History: {selectedBatch.batch_no}</h5>
+                          <button className="btn-close" onClick={() => setShowHistoryModal(false)}></button>
+                      </div>
+                      <div className="modal-body p-0">
+                          <div className="table-responsive">
+                              <table className="table table-striped mb-0 small">
+                                  <thead className="table-secondary">
+                                      <tr>
+                                          <th>Item Name</th>
+                                          <th>Net Weight</th>
+                                          <th>Metal</th>
+                                          <th>Origin Customer</th>
+                                          <th>Voucher</th>
+                                          <th>Date</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      {historyItems.map((item, idx) => (
+                                          <tr key={idx}>
+                                              <td className="fw-bold">{item.item_name}</td>
+                                              <td>{item.net_weight} g</td>
+                                              <td>{item.metal_type}</td>
+                                              <td>{item.customer_name || 'Walk-in'}</td>
+                                              <td className="font-monospace">{item.voucher_no}</td>
+                                              <td>{new Date(item.purchase_date).toLocaleDateString()}</td>
+                                          </tr>
+                                      ))}
+                                  </tbody>
+                              </table>
+                          </div>
+                      </div>
+                      <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>Close</button></div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 }
+
 export default RefineryManager;

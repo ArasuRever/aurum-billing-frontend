@@ -1,25 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { useReactToPrint } from 'react-to-print';
-import BarcodePrintComponent from '../components/BarcodePrintComponent'; // IMPORT THIS
+import BarcodePrintComponent from '../components/BarcodePrintComponent';
 
 function InventoryManager() {
-  const [items, setItems] = useState([]);
+  const [activeTab, setActiveTab] = useState('FRESH'); 
+  
+  const [items, setItems] = useState([]); // Fresh Items
+  const [oldItems, setOldItems] = useState([]); // Old Metal Items
+  
   const [filterMode, setFilterMode] = useState(''); 
   const [vendors, setVendors] = useState([]);
   const [productTypes, setProductTypes] = useState([]); 
   
-  // --- SELECTION & PRINTING STATE ---
   const [selectedIds, setSelectedIds] = useState({});
   const printRef = useRef();
   
   const [showAddModal, setShowAddModal] = useState(false);
-  const [batchForm, setBatchForm] = useState({
-      vendor_id: '', metal_type: '', invoice_no: '', items: [] 
-  });
+  const [batchForm, setBatchForm] = useState({ vendor_id: '', metal_type: '', invoice_no: '', items: [] });
   const [tempItem, setTempItem] = useState({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '' });
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+      fetchData();
+      fetchOldMetal(); 
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -30,19 +34,63 @@ function InventoryManager() {
       ]);
       setItems(invRes.data);
       setVendors(vendRes.data);
-      
-      const types = typesRes.data || [];
-      setProductTypes(types);
-      if(types.length > 0) setBatchForm(prev => ({ ...prev, metal_type: types[0].name }));
-
+      setProductTypes(typesRes.data || []);
+      if(typesRes.data.length > 0) setBatchForm(prev => ({ ...prev, metal_type: typesRes.data[0].name }));
     } catch (err) { console.error(err); }
   };
 
-  // --- SELECTION HANDLERS ---
+  const fetchOldMetal = async () => {
+      try {
+          const [goldRes, silverRes] = await Promise.all([
+              api.getPendingScrap('GOLD'),
+              api.getPendingScrap('SILVER')
+          ]);
+          setOldItems([...goldRes.data, ...silverRes.data]);
+      } catch(err) { console.error(err); }
+  };
+
+  const filteredItems = items.filter(i => {
+      if (filterMode === '') return true; 
+      if (filterMode === 'OWN') return i.source_type === 'OWN'; 
+      return i.vendor_id === parseInt(filterMode);
+  });
+
+  // --- DYNAMIC TOTALS CALCULATION (USING GROSS WEIGHT) ---
+  const getTotals = () => {
+      const currentList = activeTab === 'FRESH' ? filteredItems : oldItems;
+      const typeSet = new Set([...productTypes.map(t=>t.name), ...currentList.map(i=>i.metal_type)]);
+      const uniqueTypes = Array.from(typeSet);
+
+      return uniqueTypes.map(type => {
+          const total = currentList
+              .filter(i => i.metal_type === type)
+              .reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0) // Always use gross_weight
+              .toFixed(3);
+          
+          const setting = productTypes.find(t => t.name === type);
+          return { 
+              type, 
+              total, 
+              color: setting ? setting.display_color : '#6c757d' 
+          };
+      });
+  };
+
+  const totals = getTotals();
+
+  const getSourceLabel = (item) => {
+      if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
+      if (item.source_type === 'NEIGHBOUR') return <span className="badge bg-info text-dark">NEIGHBOUR</span>;
+      if (item.source_type === 'REFINERY') return <span className="badge bg-warning text-dark">REFINED</span>;
+      const vName = vendors.find(v => v.id === item.vendor_id)?.business_name || 'Unknown Vendor';
+      return <span className="text-muted small">{vName}</span>;
+  };
+
   const handleSelectAll = (e) => {
+      const list = activeTab === 'FRESH' ? filteredItems : oldItems;
       if (e.target.checked) {
           const allIds = {};
-          filteredItems.forEach(i => allIds[i.id] = true);
+          list.forEach(i => allIds[i.id] = true);
           setSelectedIds(allIds);
       } else {
           setSelectedIds({});
@@ -53,15 +101,22 @@ function InventoryManager() {
       setSelectedIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // --- PRINT HANDLER ---
   const handlePrintTags = useReactToPrint({
       content: () => printRef.current,
-      onAfterPrint: () => setSelectedIds({}) // Optional: Clear selection after print
+      onAfterPrint: () => setSelectedIds({})
   });
 
   const getItemsToPrint = () => {
-      return items.filter(item => selectedIds[item.id]);
+      const list = activeTab === 'FRESH' ? items : oldItems;
+      return list.filter(item => selectedIds[item.id]).map(item => ({
+          ...item,
+          item_name: item.item_name || 'Old Metal',
+          gross_weight: item.gross_weight || item.net_weight, 
+          barcode: item.barcode || item.voucher_no || 'OLD'
+      }));
   };
+
+  const selectedCount = Object.values(selectedIds).filter(Boolean).length;
 
   const handleAddItemToBatch = () => {
       if(!tempItem.item_name || !tempItem.gross_weight) return alert("Enter Item Name and Weight");
@@ -90,7 +145,6 @@ function InventoryManager() {
           };
 
           await api.addBatchInventory(payload);
-          
           alert("Stock Added Successfully!");
           setShowAddModal(false);
           setBatchForm({ vendor_id: '', metal_type: productTypes[0]?.name || 'GOLD', invoice_no: '', items: [] });
@@ -98,194 +152,141 @@ function InventoryManager() {
       } catch(err) { alert(err.message); }
   };
 
-  // --- FILTER LOGIC ---
-  const filteredItems = items.filter(i => {
-      if (filterMode === '') return true; 
-      if (filterMode === 'OWN') return i.source_type === 'OWN'; 
-      return i.vendor_id === parseInt(filterMode);
-  });
-
-  const getTotals = () => {
-      const typeSet = new Set([...productTypes.map(t=>t.name), ...items.map(i=>i.metal_type)]);
-      const uniqueTypes = Array.from(typeSet);
-
-      return uniqueTypes.map(type => {
-          const total = filteredItems.filter(i => i.metal_type === type).reduce((sum, i) => sum + parseFloat(i.gross_weight), 0).toFixed(3);
-          const setting = productTypes.find(t => t.name === type);
-          return { type, total, color: setting ? setting.display_color : '#6c757d' };
-      });
-  };
-
-  const totals = getTotals();
-  const selectedCount = Object.values(selectedIds).filter(Boolean).length;
-
-  const getSourceLabel = (item) => {
-      if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
-      if (item.source_type === 'NEIGHBOUR') return <span className="badge bg-info text-dark">NEIGHBOUR</span>;
-      const vName = vendors.find(v => v.id === item.vendor_id)?.business_name || 'Unknown Vendor';
-      return <span className="text-muted small">{vName}</span>;
-  };
-
   return (
     <div className="container-fluid pb-5">
       
-      {/* 1. TOP STATS CARDS */}
-      <div className="row g-4 mb-4">
+      <div className="d-flex justify-content-between align-items-end mb-4">
+          <div>
+              <h4 className="fw-bold text-dark mb-3">Inventory Manager</h4>
+              <ul className="nav nav-pills">
+                  <li className="nav-item">
+                      <button className={`nav-link fw-bold px-4 ${activeTab==='FRESH'?'active':''}`} onClick={()=>setActiveTab('FRESH')}>
+                          <i className="bi bi-gem me-2"></i>Fresh Stock
+                      </button>
+                  </li>
+                  <li className="nav-item">
+                      <button className={`nav-link fw-bold px-4 ${activeTab==='OLD'?'active':''}`} onClick={()=>setActiveTab('OLD')}>
+                          <i className="bi bi-recycle me-2"></i>Old Metal Stock
+                      </button>
+                  </li>
+              </ul>
+          </div>
+          
+          <div className="d-flex gap-2 align-items-center">
+              {selectedCount > 0 && (
+                  <button className="btn btn-dark fw-bold" onClick={handlePrintTags}>
+                      <i className="bi bi-printer-fill me-2"></i>Tags ({selectedCount})
+                  </button>
+              )}
+              {activeTab === 'FRESH' && (
+                  <>
+                    <select className="form-select w-auto fw-bold" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
+                        <option value="">All Sources</option>
+                        <option value="OWN">Shop / Own</option>
+                        {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                    </select>
+                    <button className="btn btn-primary fw-bold" onClick={() => setShowAddModal(true)}>
+                        <i className="bi bi-plus-lg me-2"></i>Add Fresh Stock
+                    </button>
+                  </>
+              )}
+          </div>
+      </div>
+
+      {/* STATS CARDS */}
+      <div className="row g-3 mb-4">
         {totals.map(t => (
             <div className="col-md-3" key={t.type}>
                 <div className="card text-white shadow-sm border-0" style={{backgroundColor: t.color || '#6c757d'}}>
                     <div className="card-body">
-                        <h6 className="opacity-75 text-uppercase">TOTAL {t.type}</h6>
-                        <div className="display-6 fw-bold">{t.total}g</div>
+                        <h6 className="opacity-75 text-uppercase small">TOTAL {t.type} ({activeTab === 'FRESH' ? 'Stock' : 'Scrap'})</h6>
+                        <div className="fs-3 fw-bold">{t.total} <span className="fs-6">g</span></div>
                     </div>
                 </div>
             </div>
         ))}
-        
-        {/* ACTION BAR */}
-        <div className="col-md-3 d-flex flex-column justify-content-end ms-auto gap-2">
-           <select className="form-select form-select-sm fw-bold" value={filterMode} onChange={e => setFilterMode(e.target.value)}>
-              <option value="">All Inventory</option>
-              <option value="OWN">✦ Shop / Own Stock</option>
-              <optgroup label="Vendors">
-                {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
-              </optgroup>
-           </select>
-           <button className="btn btn-primary fw-bold w-100" onClick={() => setShowAddModal(true)}>
-               <i className="bi bi-plus-lg me-2"></i>Add Stock
-           </button>
-        </div>
       </div>
 
-      {/* 2. INVENTORY TABLE */}
       <div className="card shadow-sm border-0">
         <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 className="mb-0 fw-bold text-primary">Available Inventory</h5>
-            
-            {/* PRINT BUTTON (Visible when items selected) */}
-            {selectedCount > 0 && (
-                <button className="btn btn-dark btn-sm fw-bold" onClick={handlePrintTags}>
-                    <i className="bi bi-printer-fill me-2"></i>Print {selectedCount} Tags
-                </button>
-            )}
+            <h5 className="mb-0 fw-bold text-secondary">
+                {activeTab === 'FRESH' ? 'Available Fresh Inventory' : 'Available Old Metal (Scrap)'}
+            </h5>
         </div>
+        
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
             <thead className="table-light">
                 <tr>
                     <th style={{width:'40px'}} className="text-center">
-                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={filteredItems.length > 0 && filteredItems.every(i => selectedIds[i.id])} />
+                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} />
                     </th>
-                    <th>Item</th>
-                    <th>Barcode</th>
-                    <th>Metal</th>
-                    <th>Weight</th>
-                    <th>Wastage</th>
-                    <th>Source</th>
+                    <th>Item Name</th>
+                    {activeTab === 'FRESH' ? (
+                        <><th>Barcode</th><th>Metal</th><th>Weight</th><th>Wastage</th><th>Source</th></>
+                    ) : (
+                        <><th>Ref / Voucher</th><th>Metal</th><th>Gross Wt</th><th>Net Wt</th><th>Date</th><th>Status</th></>
+                    )}
                 </tr>
             </thead>
             <tbody>
-              {filteredItems.map(item => (
+              {(activeTab === 'FRESH' ? filteredItems : oldItems).map(item => (
                 <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
                   <td className="text-center">
                       <input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} />
                   </td>
-                  <td>
-                      <div className="fw-bold">{item.item_name}</div>
-                      {item.stock_type === 'BULK' && <span className="badge bg-primary" style={{fontSize:'0.6em'}}>BULK STOCK ({item.quantity})</span>}
-                  </td>
-                  <td className="small font-monospace text-muted">{item.barcode}</td>
-                  <td><span className="badge bg-light text-dark border">{item.metal_type}</span></td>
-                  <td className="fw-bold">{item.gross_weight}g</td>
-                  <td>{item.wastage_percent}%</td>
-                  <td>{getSourceLabel(item)}</td>
+                  <td className="fw-bold">{item.item_name}</td>
+                  
+                  {activeTab === 'FRESH' ? (
+                      <>
+                        <td className="small font-monospace text-muted">{item.barcode}</td>
+                        <td><span className="badge bg-light text-dark border">{item.metal_type}</span></td>
+                        <td className="fw-bold">{item.gross_weight}g</td>
+                        <td>{item.wastage_percent}%</td>
+                        <td>{getSourceLabel(item)}</td>
+                      </>
+                  ) : (
+                      <>
+                        <td className="small font-monospace text-muted">{item.voucher_no || item.id}</td>
+                        <td><span className={`badge ${item.metal_type==='GOLD'?'bg-warning text-dark':'bg-secondary'}`}>{item.metal_type}</span></td>
+                        <td>{item.gross_weight} g</td>
+                        <td className="fw-bold">{item.net_weight} g</td>
+                        <td className="small text-muted">{new Date(item.date || Date.now()).toLocaleDateString()}</td>
+                        <td><span className="badge bg-success">AVAILABLE</span></td>
+                      </>
+                  )}
                 </tr>
               ))}
-              {filteredItems.length === 0 && <tr><td colSpan="7" className="text-center py-4 text-muted">No items found matching filter.</td></tr>}
+              {(activeTab === 'FRESH' ? filteredItems : oldItems).length === 0 && (
+                  <tr><td colSpan="7" className="text-center py-4 text-muted">No items found.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* 3. BATCH ADD MODAL */}
       {showAddModal && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog modal-lg">
                   <div className="modal-content">
-                      <div className="modal-header bg-primary text-white">
-                          <h5 className="modal-title">Add Stock (Batch Entry)</h5>
-                          <button className="btn-close btn-close-white" onClick={() => setShowAddModal(false)}></button>
-                      </div>
+                      <div className="modal-header bg-primary text-white"><h5 className="modal-title">Add Stock</h5><button className="btn-close btn-close-white" onClick={()=>setShowAddModal(false)}></button></div>
                       <div className="modal-body">
-                          {/* Header Inputs */}
-                          <div className="row g-3 mb-4">
-                              <div className="col-md-4">
-                                  <label className="small fw-bold">Source</label>
-                                  <select className="form-select" value={batchForm.vendor_id} onChange={e => setBatchForm({...batchForm, vendor_id: e.target.value})}>
-                                      <option value="">Select Source</option>
-                                      <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
-                                      <optgroup label="Vendors">
-                                          {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
-                                      </optgroup>
-                                  </select>
-                              </div>
-                              <div className="col-md-4">
-                                  <label className="small fw-bold">Metal Type</label>
-                                  <select className="form-select" value={batchForm.metal_type} onChange={e => setBatchForm({...batchForm, metal_type: e.target.value})}>
-                                      {productTypes.map(type => (
-                                          <option key={type.id} value={type.name}>{type.name}</option>
-                                      ))}
-                                  </select>
-                              </div>
-                              <div className="col-md-4">
-                                  <label className="small fw-bold">Invoice / Ref No</label>
-                                  <input className="form-control" 
-                                    placeholder={batchForm.vendor_id === 'OWN' ? "Optional" : "Required"}
-                                    value={batchForm.invoice_no} 
-                                    onChange={e => setBatchForm({...batchForm, invoice_no: e.target.value})} 
-                                  />
-                              </div>
+                          <div className="row g-3 mb-3">
+                              <div className="col-4"><label className="small fw-bold">Source</label><select className="form-select" value={batchForm.vendor_id} onChange={e=>setBatchForm({...batchForm, vendor_id:e.target.value})}><option value="OWN">Own Stock</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.business_name}</option>)}</select></div>
+                              <div className="col-4"><label className="small fw-bold">Type</label><select className="form-select" value={batchForm.metal_type} onChange={e=>setBatchForm({...batchForm, metal_type:e.target.value})}>{productTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}</select></div>
+                              <div className="col-4"><label className="small fw-bold">Ref No</label><input className="form-control" value={batchForm.invoice_no} onChange={e=>setBatchForm({...batchForm, invoice_no:e.target.value})} /></div>
                           </div>
-
-                          {/* Grid Entry */}
-                          <div className="card bg-light border-0 p-3 mb-3">
-                              <div className="row g-2 align-items-end">
-                                  <div className="col-3"><label className="small">Item Name</label><input className="form-control form-control-sm" value={tempItem.item_name} onChange={e => setTempItem({...tempItem, item_name: e.target.value})} /></div>
-                                  <div className="col-2"><label className="small">Weight (g)</label><input type="number" className="form-control form-control-sm" value={tempItem.gross_weight} onChange={e => setTempItem({...tempItem, gross_weight: e.target.value})} /></div>
-                                  <div className="col-2"><label className="small">Wastage %</label><input type="number" className="form-control form-control-sm" value={tempItem.wastage_percent} onChange={e => setTempItem({...tempItem, wastage_percent: e.target.value})} /></div>
-                                  <div className="col-2"><label className="small">HUID</label><input className="form-control form-control-sm" value={tempItem.huid} onChange={e => setTempItem({...tempItem, huid: e.target.value})} /></div>
-                                  <div className="col-3"><button className="btn btn-dark btn-sm w-100" onClick={handleAddItemToBatch}>+ Add Row</button></div>
-                              </div>
-                          </div>
-
-                          {/* Preview Table */}
-                          <table className="table table-sm table-bordered">
-                              <thead><tr><th>Item</th><th>Wt</th><th>Wastage</th><th>HUID</th><th>Action</th></tr></thead>
-                              <tbody>
-                                  {batchForm.items.map(item => (
-                                      <tr key={item.id}>
-                                          <td>{item.item_name}</td><td>{item.gross_weight}</td><td>{item.wastage_percent}</td><td>{item.huid}</td>
-                                          <td><button className="btn btn-link text-danger p-0" onClick={() => handleRemoveFromBatch(item.id)}>Remove</button></td>
-                                      </tr>
-                                  ))}
-                              </tbody>
-                          </table>
+                          <div className="card bg-light p-2 mb-3"><div className="row g-2 align-items-end"><div className="col-3"><input className="form-control form-control-sm" placeholder="Name" value={tempItem.item_name} onChange={e=>setTempItem({...tempItem, item_name:e.target.value})} /></div><div className="col-2"><input type="number" className="form-control form-control-sm" placeholder="Wt" value={tempItem.gross_weight} onChange={e=>setTempItem({...tempItem, gross_weight:e.target.value})} /></div><div className="col-2"><input type="number" className="form-control form-control-sm" placeholder="Wst%" value={tempItem.wastage_percent} onChange={e=>setTempItem({...tempItem, wastage_percent:e.target.value})} /></div><div className="col-2"><input className="form-control form-control-sm" placeholder="HUID" value={tempItem.huid} onChange={e=>setTempItem({...tempItem, huid:e.target.value})} /></div><div className="col-3"><button className="btn btn-dark btn-sm w-100" onClick={handleAddItemToBatch}>Add</button></div></div></div>
+                          <table className="table table-sm"><tbody>{batchForm.items.map(i=><tr key={i.id}><td>{i.item_name}</td><td>{i.gross_weight}</td><td><button className="btn btn-link text-danger p-0" onClick={()=>handleRemoveFromBatch(i.id)}>x</button></td></tr>)}</tbody></table>
                       </div>
-                      <div className="modal-footer">
-                          <button className="btn btn-success fw-bold" onClick={submitBatch}>Save Batch ({batchForm.items.length} Items)</button>
-                      </div>
+                      <div className="modal-footer"><button className="btn btn-success" onClick={submitBatch}>Save</button></div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* HIDDEN PRINT COMPONENT */}
       <div style={{ display: 'none' }}>
-          <BarcodePrintComponent 
-            ref={printRef} 
-            items={getItemsToPrint()} 
-            shopName="AURUM" // Pass dynamic shop name here if available
-          />
+          <BarcodePrintComponent ref={printRef} items={getItemsToPrint()} shopName="AURUM" />
       </div>
 
     </div>

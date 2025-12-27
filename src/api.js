@@ -17,18 +17,18 @@ export const api = {
   deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`),
   vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
   getVendorTransactions: (id) => axios.get(`${API_URL}/vendors/${id}/transactions`),
-  getVendorSalesHistory: (id) => axios.get(`${API_URL}/inventory/vendor-history/${id}`),
+  getVendorSalesHistory: (id) => axios.get(`${API_URL}/vendors/${id}/sales-history`),
 
   // --- INVENTORY ---
   addInventory: (formData) => axios.post(`${API_URL}/inventory/add`, formData),
   addBatchInventory: (data) => axios.post(`${API_URL}/inventory/batch-add`, data),
   getInventory: () => axios.get(`${API_URL}/inventory/list`),
-  getVendorInventory: (id) => axios.get(`${API_URL}/inventory/vendor/${id}`),
+  getVendorInventory: (id) => axios.get(`${API_URL}/vendors/${id}/inventory`), // Fixed Path mapping
   updateInventory: (id, data) => axios.put(`${API_URL}/inventory/update/${id}`, data),
   deleteInventory: (id) => axios.delete(`${API_URL}/inventory/${id}`),
+  searchBillingItem: (q) => axios.get(`${API_URL}/inventory/search?q=${q}`), // Moved here for consistency
 
   // --- BILLING ---
-  searchBillingItem: (q) => axios.get(`${API_URL}/billing/search-item?q=${q}`),
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
   deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`),
   getBillHistory: (search) => axios.get(`${API_URL}/billing/history`, { params: { search } }),
@@ -37,7 +37,7 @@ export const api = {
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
   processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
 
-  // AUDIT
+  // --- AUDIT (New Module) ---
   startAudit: (data) => axios.post(`${API_URL}/audit/start`, data),
   scanAuditItem: (data) => axios.post(`${API_URL}/audit/scan`, data),
   getAuditReport: (id) => axios.get(`${API_URL}/audit/${id}/report`),
@@ -101,9 +101,18 @@ export const api = {
   getRefineryBatches: () => axios.get(`${API_URL}/refinery/batches`),
   getPendingScrap: (metalType) => axios.get(`${API_URL}/refinery/pending-scrap?metal_type=${metalType}`),
   createRefineryBatch: (data) => axios.post(`${API_URL}/refinery/create-batch`, data),
-  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+  
+  // NEW: Get Items inside a specific batch
+  getBatchItems: (id) => axios.get(`${API_URL}/refinery/batch/${id}/items`),
+
+  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, { // Assuming JSON, fixed form-data if backend expects JSON
+     // headers: { 'Content-Type': 'application/json' } 
+     // Note: Backend code for 'receive-refined' used `req.body` directly, so JSON is safer unless you changed it to multer.
+     // If backend is pure JSON:
   }),
+  // Alternative Receive (JSON) - Safest for current backend code provided earlier:
+  receiveRefinedGoldJSON: (data) => axios.post(`${API_URL}/refinery/receive-refined`, data),
+
   useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 
   // --- EXTERNAL GST BILLING ---
