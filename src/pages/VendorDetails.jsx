@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useReactToPrint } from 'react-to-print'; // IMPORT PRINT HOOK
+import BarcodePrintComponent from '../components/BarcodePrintComponent'; // IMPORT BARCODE COMPONENT
 
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -15,8 +17,8 @@ function VendorDetails() {
   
   // Data
   const [vendor, setVendor] = useState(null);
-  const [items, setItems] = useState([]); // Current Inventory
-  const [soldHistory, setSoldHistory] = useState([]); // NEW: Sales History Data
+  const [items, setItems] = useState([]); 
+  const [soldHistory, setSoldHistory] = useState([]); 
   const [transactions, setTransactions] = useState([]);
   const [agents, setAgents] = useState([]);
   const [masterItems, setMasterItems] = useState([]); 
@@ -29,6 +31,10 @@ function VendorDetails() {
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [purityMode, setPurityMode] = useState('TOUCH'); 
+
+  // --- SELECTION & PRINTING STATE ---
+  const [selectedIds, setSelectedIds] = useState({});
+  const printRef = useRef();
 
   // Modals & Forms
   const [showEditVendor, setShowEditVendor] = useState(false);
@@ -53,14 +59,14 @@ function VendorDetails() {
       
       const [itemRes, salesRes, transRes, agentRes, typeRes] = await Promise.all([
           api.getVendorInventory(id),
-          api.getVendorSalesHistory(id), // <--- NEW API CALL
+          api.getVendorSalesHistory(id),
           api.getVendorTransactions(id),
           api.getVendorAgents(id),
           api.getProductTypes()
       ]);
 
       setItems(itemRes.data);
-      setSoldHistory(salesRes.data || []); // <--- Store Sold History
+      setSoldHistory(salesRes.data || []);
       setTransactions(transRes.data || []); 
       setAgents(agentRes.data || []);
       setProductTypes(typeRes.data || []);
@@ -87,15 +93,39 @@ function VendorDetails() {
     );
   };
 
-  // Display Lists
   const availableItems = filterItems(items.filter(i => i.status === 'AVAILABLE'));
-  const soldItems = filterItems(soldHistory); // <--- Use the dedicated sales history list
+  const soldItems = filterItems(soldHistory);
 
-  // Calculate Totals
   const availableWeight = availableItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
   const soldWeight = soldItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
 
-  // --- ACTIONS (Unchanged) ---
+  // --- SELECTION HANDLERS ---
+  const handleSelectAll = (e) => {
+      if (e.target.checked) {
+          const allIds = {};
+          availableItems.forEach(i => allIds[i.id] = true);
+          setSelectedIds(allIds);
+      } else {
+          setSelectedIds({});
+      }
+  };
+
+  const handleSelectRow = (id) => {
+      setSelectedIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handlePrintTags = useReactToPrint({
+      content: () => printRef.current,
+      onAfterPrint: () => setSelectedIds({})
+  });
+
+  const getItemsToPrint = () => {
+      return items.filter(item => selectedIds[item.id]);
+  };
+
+  const selectedCount = Object.values(selectedIds).filter(Boolean).length;
+
+  // --- ACTIONS ---
   const handleUpdateVendor = async () => { try { await api.updateVendor(id, editVendorForm); alert('Vendor Updated'); setShowEditVendor(false); loadAllData(); } catch (err) { alert('Update failed'); } };
   
   const handleSaveAgent = async () => {
@@ -267,7 +297,7 @@ function VendorDetails() {
   return (
     <div className="container-fluid pb-5">
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/')}><i className="bi bi-arrow-left me-1"></i> Back</button>
+        <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/vendors')}><i className="bi bi-arrow-left me-1"></i> Back</button>
         <div className="d-flex gap-2">
             {viewMode === 'overview' && (
                 <div className="input-group input-group-sm" style={{width: '250px'}}>
@@ -355,20 +385,42 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-6">
+                {/* AVAILABLE STOCK CARD (UPDATED WITH BARCODE PRINTING) */}
                 <div className="card shadow-sm border-0 mb-4">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-success">Available Stock</h6>
-                        <span className="badge bg-success bg-opacity-10 text-success border border-success">
-                            {availableItems.length} Items &bull; {availableWeight} g
-                        </span>
+                        <div className="d-flex align-items-center gap-2">
+                            {selectedCount > 0 && (
+                                <button className="btn btn-dark btn-sm fw-bold" onClick={handlePrintTags}>
+                                    <i className="bi bi-printer-fill me-2"></i>Print Tags ({selectedCount})
+                                </button>
+                            )}
+                            <span className="badge bg-success bg-opacity-10 text-success border border-success">
+                                {availableItems.length} Items &bull; {availableWeight} g
+                            </span>
+                        </div>
                     </div>
                     <div className="table-responsive" style={{maxHeight:'40vh'}}>
                         <table className="table table-hover align-middle mb-0">
-                            <thead className="table-light small sticky-top"><tr><th>Date</th><th>Image</th><th>Details</th><th>Wt</th><th>Actions</th></tr></thead>
+                            <thead className="table-light small sticky-top">
+                                <tr>
+                                    <th style={{width:'30px'}} className="text-center">
+                                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={availableItems.length > 0 && availableItems.every(i => selectedIds[i.id])} />
+                                    </th>
+                                    <th>Date</th>
+                                    <th>Image</th>
+                                    <th>Details</th>
+                                    <th>Wt</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                {availableItems.length === 0 && <tr><td colSpan="5" className="text-center py-3 text-muted">No items found</td></tr>}
+                                {availableItems.length === 0 && <tr><td colSpan="6" className="text-center py-3 text-muted">No items found</td></tr>}
                                 {availableItems.map(item => (
-                                    <tr key={item.id}>
+                                    <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
+                                        <td className="text-center">
+                                            <input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} />
+                                        </td>
                                         <td className="small">{new Date(item.created_at).toLocaleDateString()}</td>
                                         <td>{item.item_image && <img src={item.item_image} style={{width:'40px',height:'40px'}} />}</td>
                                         <td>
@@ -453,11 +505,11 @@ function VendorDetails() {
                      </ul>
                    </div>
                  </div>
-              </div>
+             </div>
         </div>
       )}
 
-      {/* Modals unchanged... */}
+      {/* Modals */}
       {showManageAgents && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -530,6 +582,15 @@ function VendorDetails() {
            </div>
         </div>
       )}
+
+      {/* HIDDEN PRINT COMPONENT */}
+      <div style={{ display: 'none' }}>
+          <BarcodePrintComponent 
+            ref={printRef} 
+            items={getItemsToPrint()} 
+            shopName="AURUM" 
+          />
+      </div>
     </div>
   );
 }
