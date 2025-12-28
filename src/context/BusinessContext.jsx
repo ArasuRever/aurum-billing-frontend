@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useContext } from 'react';
 import { api } from '../api';
 
 export const BusinessContext = createContext();
@@ -19,7 +19,8 @@ export const BusinessProvider = ({ children }) => {
                     name: res.data.business_name,
                     logo: res.data.logo, 
                     address: res.data.address,
-                    phone: res.data.contact_number
+                    phone: res.data.contact_number,
+                    license: res.data.license_number // Added license in case you need it
                 });
             }
         } catch (err) {
@@ -36,4 +37,9 @@ export const BusinessProvider = ({ children }) => {
             {children}
         </BusinessContext.Provider>
     );
+};
+
+// --- THIS WAS MISSING ---
+export const useBusiness = () => {
+    return useContext(BusinessContext);
 };

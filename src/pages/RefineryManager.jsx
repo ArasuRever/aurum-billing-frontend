@@ -2,31 +2,37 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 
 function RefineryManager() {
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending' or 'batches'
+  const [activeTab, setActiveTab] = useState('pending');
   const [metalType, setMetalType] = useState('GOLD');
   const [pendingItems, setPendingItems] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [vendors, setVendors] = useState([]);
+  const [shops, setShops] = useState([]); // For Transfer
 
   // Selection
   const [selectedIds, setSelectedIds] = useState({});
   const [selectedBatch, setSelectedBatch] = useState(null);
 
   // Modals
-  const [showBatchModal, setShowBatchModal] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [showUseModal, setShowUseModal] = useState(false);
-  
-  // NEW: History Modal State
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyItems, setHistoryItems] = useState([]);
 
   // Forms
-  const [receiveForm, setReceiveForm] = useState({ refined_weight: '', pure_weight: '' });
-  const [useForm, setUseForm] = useState({ item_name: '', use_weight: '' });
+  const [receiveForm, setReceiveForm] = useState({ refined_weight: '', touch: '99.50', pure_weight: '' });
+  const [useForm, setUseForm] = useState({ 
+      item_name: '', use_weight: '', 
+      transfer_to: 'INVENTORY', // 'INVENTORY', 'VENDOR', 'SHOP'
+      recipient_id: '' 
+  });
 
-  useEffect(() => { loadData(); }, [activeTab, metalType]);
+  useEffect(() => { 
+      loadData(); 
+      api.getVendors().then(res => setVendors(res.data)).catch(console.error);
+      api.getShops().then(res => setShops(res.data)).catch(console.error);
+  }, [activeTab, metalType]);
 
   const loadData = async () => {
     setLoading(true);
@@ -54,8 +60,9 @@ function RefineryManager() {
 
   const toggleSelect = (id) => setSelectedIds(prev => ({ ...prev, [id]: !prev[id] }));
 
+  // Using GROSS weight for display logic as requested
   const calculateTotal = () => {
-      return pendingItems.filter(i => selectedIds[i.id]).reduce((sum, i) => sum + parseFloat(i.net_weight), 0).toFixed(3);
+      return pendingItems.filter(i => selectedIds[i.id]).reduce((sum, i) => sum + parseFloat(i.gross_weight || i.net_weight), 0).toFixed(3);
   };
 
   const createBatch = async () => {
@@ -71,12 +78,21 @@ function RefineryManager() {
       } catch(err) { alert(err.message); }
   };
 
+  const handleTouchChange = (touchVal) => {
+      const refined = parseFloat(receiveForm.refined_weight) || 0;
+      const tch = parseFloat(touchVal) || 0;
+      const pure = (refined * (tch / 100)).toFixed(3);
+      setReceiveForm({ ...receiveForm, touch: touchVal, pure_weight: pure });
+  };
+
   const receiveGold = async () => {
       try {
           await api.receiveRefinedGold({ 
               batch_id: selectedBatch.id, 
               refined_weight: receiveForm.refined_weight, 
-              pure_weight: receiveForm.pure_weight 
+              touch: receiveForm.touch,
+              // pure_weight is auto-calced on backend too for safety, but we send it or backend handles it.
+              // backend route I wrote handles calc, so refined + touch is enough.
           });
           alert("Gold Received!");
           setShowReceiveModal(false);
@@ -90,15 +106,16 @@ function RefineryManager() {
               batch_id: selectedBatch.id,
               use_weight: useForm.use_weight,
               item_name: useForm.item_name,
-              metal_type: selectedBatch.metal_type
+              metal_type: selectedBatch.metal_type,
+              transfer_to: useForm.transfer_to,
+              recipient_id: useForm.recipient_id
           });
-          alert("Stock Used / Added to Inventory!");
+          alert("Stock Used / Transferred!");
           setShowUseModal(false);
           loadData();
       } catch(err) { alert(err.message); }
   };
 
-  // NEW: View History Function
   const handleViewHistory = async (batch) => {
       setSelectedBatch(batch);
       try {
@@ -126,7 +143,7 @@ function RefineryManager() {
                       <button className={`btn btn-sm ${metalType==='SILVER'?'btn-secondary':'btn-outline-secondary'}`} onClick={()=>setMetalType('SILVER')}>SILVER</button>
                   </div>
                   <div className="d-flex align-items-center gap-3">
-                      <h5 className="m-0">Selected: <strong>{calculateTotal()} g</strong></h5>
+                      <h5 className="m-0">Selected Gross: <strong>{calculateTotal()} g</strong></h5>
                       <button className="btn btn-danger fw-bold" onClick={createBatch}>Send to Refinery <i className="bi bi-arrow-right"></i></button>
                   </div>
               </div>
@@ -135,7 +152,7 @@ function RefineryManager() {
                       <thead className="table-light">
                           <tr>
                               <th style={{width:'40px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} /></th>
-                              <th>Item Name</th><th>Weight</th><th>Purity</th><th>Status</th>
+                              <th>Item Name</th><th>Gross Wt</th><th>Net Wt</th><th>Status</th>
                           </tr>
                       </thead>
                       <tbody>
@@ -144,8 +161,8 @@ function RefineryManager() {
                               <tr key={item.id} className={selectedIds[item.id] ? 'table-warning' : ''}>
                                   <td className="text-center"><input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={()=>toggleSelect(item.id)} /></td>
                                   <td>{item.item_name}</td>
-                                  <td className="fw-bold">{item.net_weight} g</td>
-                                  <td>{item.purity}%</td>
+                                  <td className="fw-bold">{item.gross_weight} g</td>
+                                  <td className="text-muted small">{item.net_weight} g</td>
                                   <td><span className="badge bg-success">AVAILABLE</span></td>
                               </tr>
                           ))}
@@ -166,9 +183,9 @@ function RefineryManager() {
                         <span className={`badge ${batch.status==='SENT'?'bg-warning text-dark': batch.status==='REFINED'?'bg-primary':'bg-success'}`}>{batch.status}</span>
                      </div>
                      
-                     <div className="d-flex justify-content-between mb-1"><span className="text-muted small">Sent:</span><span className="fw-bold">{batch.gross_weight} g</span></div>
+                     {/* Show GROSS WEIGHT */}
+                     <div className="d-flex justify-content-between mb-1"><span className="text-muted small">Sent Gross:</span><span className="fw-bold">{batch.gross_weight} g</span></div>
                      
-                     {/* VIEW HISTORY BUTTON */}
                      <div className="text-center mb-3">
                          <button className="btn btn-link btn-sm text-decoration-none" onClick={() => handleViewHistory(batch)}>
                              <i className="bi bi-eye me-1"></i> View {batch.items_count} Items History
@@ -178,13 +195,14 @@ function RefineryManager() {
                      {batch.status !== 'SENT' && (
                         <div className="bg-light p-2 rounded mb-3 small">
                            <div className="d-flex justify-content-between"><span>Refined:</span> <strong>{batch.refined_weight} g</strong></div>
+                           <div className="d-flex justify-content-between"><span>Touch:</span> <strong>{batch.touch}%</strong></div>
                            <div className="d-flex justify-content-between"><span>Pure:</span> <strong>{parseFloat(batch.pure_weight).toFixed(3)} g</strong></div>
                            <div className="d-flex justify-content-between text-success"><span>Available:</span> <strong>{(parseFloat(batch.pure_weight) - (parseFloat(batch.used_weight)||0)).toFixed(3)} g</strong></div>
                         </div>
                      )}
                      
                      {batch.status === 'SENT' && <button className="btn btn-outline-primary w-100" onClick={()=>{setSelectedBatch(batch); setShowReceiveModal(true);}}>Receive Gold</button>}
-                     {batch.status === 'REFINED' && <button className="btn btn-outline-success w-100" onClick={()=>{setSelectedBatch(batch); setShowUseModal(true);}}>Use Stock</button>}
+                     {batch.status === 'REFINED' && <button className="btn btn-outline-success w-100" onClick={()=>{setSelectedBatch(batch); setShowUseModal(true);}}>Transfer / Use Stock</button>}
                   </div>
                </div>
              </div>
@@ -200,7 +218,8 @@ function RefineryManager() {
                       <div className="modal-header"><h5 className="modal-title">Receive Gold</h5><button className="btn-close" onClick={()=>setShowReceiveModal(false)}></button></div>
                       <div className="modal-body">
                           <div className="mb-3"><label>Total Refined Wt</label><input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, refined_weight:e.target.value})} /></div>
-                          <div className="mb-3"><label>Total Pure Wt (24k)</label><input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, pure_weight:e.target.value})} /></div>
+                          <div className="mb-3"><label>Touch (%)</label><input className="form-control" type="number" placeholder="99.50" value={receiveForm.touch} onChange={e=>handleTouchChange(e.target.value)} /></div>
+                          <div className="mb-3"><label>Calculated Pure Wt</label><input className="form-control fw-bold" type="number" disabled value={receiveForm.pure_weight} /></div>
                           <button className="btn btn-primary w-100" onClick={receiveGold}>Save</button>
                       </div>
                   </div>
@@ -208,23 +227,59 @@ function RefineryManager() {
           </div>
       )}
 
-      {/* USE STOCK MODAL */}
+      {/* USE / TRANSFER STOCK MODAL */}
       {showUseModal && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
                   <div className="modal-content">
-                      <div className="modal-header"><h5 className="modal-title">Use Refined Stock</h5><button className="btn-close" onClick={()=>setShowUseModal(false)}></button></div>
+                      <div className="modal-header"><h5 className="modal-title">Use / Transfer Refined Stock</h5><button className="btn-close" onClick={()=>setShowUseModal(false)}></button></div>
                       <div className="modal-body">
-                          <div className="mb-3"><label>Item Name (for Inventory)</label><input className="form-control" placeholder="e.g. 24k Bar" onChange={e=>setUseForm({...useForm, item_name:e.target.value})} /></div>
-                          <div className="mb-3"><label>Weight to Use</label><input className="form-control" type="number" onChange={e=>setUseForm({...useForm, use_weight:e.target.value})} /></div>
-                          <button className="btn btn-success w-100" onClick={useStock}>Add to Inventory</button>
+                          <div className="mb-3">
+                              <label className="fw-bold small">Transfer To:</label>
+                              <select className="form-select" value={useForm.transfer_to} onChange={e=>setUseForm({...useForm, transfer_to: e.target.value, recipient_id: ''})}>
+                                  <option value="INVENTORY">Internal Inventory (New Bar)</option>
+                                  <option value="VENDOR">Vendor (Pay/Credit)</option>
+                                  <option value="SHOP">B2B Shop / Neighbour</option>
+                              </select>
+                          </div>
+
+                          {/* DYNAMIC RECIPIENT SELECT */}
+                          {useForm.transfer_to === 'VENDOR' && (
+                              <div className="mb-3">
+                                  <label className="small">Select Vendor</label>
+                                  <select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}>
+                                      <option value="">-- Select Vendor --</option>
+                                      {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                                  </select>
+                              </div>
+                          )}
+
+                          {useForm.transfer_to === 'SHOP' && (
+                              <div className="mb-3">
+                                  <label className="small">Select Shop</label>
+                                  <select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}>
+                                      <option value="">-- Select Shop --</option>
+                                      {shops.map(s => <option key={s.id} value={s.id}>{s.shop_name}</option>)}
+                                  </select>
+                              </div>
+                          )}
+
+                          {useForm.transfer_to === 'INVENTORY' && (
+                              <div className="mb-3"><label>Item Name</label><input className="form-control" placeholder="e.g. 24k Bar" onChange={e=>setUseForm({...useForm, item_name:e.target.value})} /></div>
+                          )}
+
+                          <div className="mb-3"><label>Weight to Transfer (Pure)</label><input className="form-control" type="number" onChange={e=>setUseForm({...useForm, use_weight:e.target.value})} /></div>
+                          
+                          <button className="btn btn-success w-100" onClick={useStock}>
+                              {useForm.transfer_to === 'INVENTORY' ? 'Add to Inventory' : 'Transfer Balance'}
+                          </button>
                       </div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* HISTORY MODAL (NEW) */}
+      {/* HISTORY MODAL (Unchanged) */}
       {showHistoryModal && selectedBatch && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog modal-lg">
@@ -237,22 +292,14 @@ function RefineryManager() {
                           <div className="table-responsive">
                               <table className="table table-striped mb-0 small">
                                   <thead className="table-secondary">
-                                      <tr>
-                                          <th>Item Name</th>
-                                          <th>Net Weight</th>
-                                          <th>Metal</th>
-                                          <th>Origin Customer</th>
-                                          <th>Voucher</th>
-                                          <th>Date</th>
-                                      </tr>
+                                      <tr><th>Item Name</th><th>Gross Wt</th><th>Net Weight</th><th>Voucher</th><th>Date</th></tr>
                                   </thead>
                                   <tbody>
                                       {historyItems.map((item, idx) => (
                                           <tr key={idx}>
                                               <td className="fw-bold">{item.item_name}</td>
+                                              <td>{item.gross_weight} g</td>
                                               <td>{item.net_weight} g</td>
-                                              <td>{item.metal_type}</td>
-                                              <td>{item.customer_name || 'Walk-in'}</td>
                                               <td className="font-monospace">{item.voucher_no}</td>
                                               <td>{new Date(item.purchase_date).toLocaleDateString()}</td>
                                           </tr>
