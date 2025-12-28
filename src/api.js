@@ -23,21 +23,24 @@ export const api = {
   addInventory: (formData) => axios.post(`${API_URL}/inventory/add`, formData),
   addBatchInventory: (data) => axios.post(`${API_URL}/inventory/batch-add`, data),
   getInventory: () => axios.get(`${API_URL}/inventory/list`),
-  getVendorInventory: (id) => axios.get(`${API_URL}/vendors/${id}/inventory`), // Fixed Path mapping
+  getVendorInventory: (id) => axios.get(`${API_URL}/vendors/${id}/inventory`), 
   updateInventory: (id, data) => axios.put(`${API_URL}/inventory/update/${id}`, data),
   deleteInventory: (id) => axios.delete(`${API_URL}/inventory/${id}`),
-  searchBillingItem: (q) => axios.get(`${API_URL}/inventory/search?q=${q}`), // Moved here for consistency
+  searchBillingItem: (q) => axios.get(`${API_URL}/inventory/search?q=${q}`), 
 
   // --- BILLING ---
   createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
-  deleteBill: (id) => axios.delete(`${API_URL}/billing/delete/${id}`),
+  
+  // UPDATED: Now accepts restoreMode ('REVERT_DEBT' or 'TAKE_OWNERSHIP')
+  deleteBill: (id, restoreMode) => axios.delete(`${API_URL}/billing/delete/${id}?restore_mode=${restoreMode || 'REVERT_DEBT'}`),
+  
   getBillHistory: (search) => axios.get(`${API_URL}/billing/history`, { params: { search } }),
   addBalancePayment: (data) => axios.post(`${API_URL}/billing/add-payment`, data),
   getInvoiceDetails: (invoiceId) => axios.get(`${API_URL}/billing/invoice/${invoiceId}`),
   returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
   processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
 
-  // --- AUDIT (New Module) ---
+  // --- AUDIT ---
   startAudit: (data) => axios.post(`${API_URL}/audit/start`, data),
   scanAuditItem: (data) => axios.post(`${API_URL}/audit/scan`, data),
   getAuditReport: (id) => axios.get(`${API_URL}/audit/${id}/report`),
@@ -101,18 +104,8 @@ export const api = {
   getRefineryBatches: () => axios.get(`${API_URL}/refinery/batches`),
   getPendingScrap: (metalType) => axios.get(`${API_URL}/refinery/pending-scrap?metal_type=${metalType}`),
   createRefineryBatch: (data) => axios.post(`${API_URL}/refinery/create-batch`, data),
-  
-  // NEW: Get Items inside a specific batch
   getBatchItems: (id) => axios.get(`${API_URL}/refinery/batch/${id}/items`),
-
-  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData, { // Assuming JSON, fixed form-data if backend expects JSON
-     // headers: { 'Content-Type': 'application/json' } 
-     // Note: Backend code for 'receive-refined' used `req.body` directly, so JSON is safer unless you changed it to multer.
-     // If backend is pure JSON:
-  }),
-  // Alternative Receive (JSON) - Safest for current backend code provided earlier:
-  receiveRefinedGoldJSON: (data) => axios.post(`${API_URL}/refinery/receive-refined`, data),
-
+  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData),
   useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
 
   // --- EXTERNAL GST BILLING ---

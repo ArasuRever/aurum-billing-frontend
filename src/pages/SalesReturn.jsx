@@ -44,8 +44,9 @@ function SalesReturn() {
   const [sale, setSale] = useState(null);
   const [saleItems, setSaleItems] = useState([]);
   const [returnSelection, setReturnSelection] = useState({}); 
+  const [restoreToOwn, setRestoreToOwn] = useState({}); // NEW: Track ownership choice
   const [shops, setShops] = useState([]); 
-  const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 }); // Init 0 to force load
+  const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 }); 
 
   // --- NEW ITEM ENTRY STATE ---
   const [newCart, setNewCart] = useState([]);
@@ -82,7 +83,7 @@ function SalesReturn() {
     // 1. Fetch Shops
     api.getShops().then(res => setShops(res.data)).catch(console.error);
 
-    // 2. Fetch Daily Rates (NEW)
+    // 2. Fetch Daily Rates
     api.getDailyRates().then(res => {
         if(res.data && (res.data.GOLD || res.data.SILVER)) {
             setRates(prev => ({ ...prev, ...res.data }));
@@ -90,6 +91,7 @@ function SalesReturn() {
     }).catch(console.error);
 
     if (saleId) {
+        // Using direct axios here as per original file, but api.getInvoiceDetails is cleaner if available
         const fetchUrl = `http://localhost:5000/api/billing/invoice/${saleId}`;
         axios.get(fetchUrl).then(res => {
             setSale(res.data.sale);
@@ -111,6 +113,18 @@ function SalesReturn() {
   // --- RETURN LOGIC ---
   const toggleReturn = (itemId) => {
     setReturnSelection(prev => ({ ...prev, [itemId]: !prev[itemId] }));
+    // Reset restore choice when toggling off
+    if (returnSelection[itemId]) {
+        setRestoreToOwn(prev => {
+            const next = { ...prev };
+            delete next[itemId];
+            return next;
+        });
+    }
+  };
+
+  const toggleRestoreToOwn = (itemId) => {
+      setRestoreToOwn(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
 
   // --- INPUT HANDLERS ---
@@ -249,12 +263,14 @@ function SalesReturn() {
     const payload = {
         sale_id: sale.id,
         customer_id: sale.customer_id, 
+        // MAP RETURNED ITEMS WITH NEW 'RESTORE_TO_OWN' FLAG
         returned_items: itemsToReturn.map(item => ({
             sale_item_id: item.id,
             original_inventory_id: item.item_id,
             item_name: item.item_name,
             gross_weight: item.sold_weight,
-            refund_amount: item.total_item_price
+            refund_amount: item.total_item_price,
+            restore_to_own: !!restoreToOwn[item.id] // Send the choice to backend
         })),
         exchange_items: newCart.map(item => ({
             id: item.item_id, 
@@ -351,23 +367,53 @@ function SalesReturn() {
             <div className="table-responsive">
                 <table className="table table-hover align-middle mb-0">
                     <thead className="table-light text-secondary small text-uppercase">
-                        <tr><th style={{width:'50px'}}>Select</th><th>Item Name</th><th>Sold Weight</th><th>Sold Rate</th><th className="text-end">Refund Amount</th></tr>
+                        <tr>
+                            <th style={{width:'50px'}}>Select</th>
+                            <th>Item Name</th>
+                            <th>Sold Weight</th>
+                            <th>Sold Rate</th>
+                            {/* NEW COLUMN */}
+                            <th className="text-center text-primary" style={{width:'200px'}}>Restocking Option</th>
+                            <th className="text-end">Refund Amount</th>
+                        </tr>
                     </thead>
                     <tbody>
                     {saleItems.map(item => {
                         const isReturned = item.item_name.includes('(RETURNED)');
+                        const isSelected = !!returnSelection[item.id];
+                        
                         return (
                         <tr key={item.id} className={isReturned ? 'bg-light text-muted' : ''}>
                             <td className="text-center">
                                 <input className="form-check-input" type="checkbox" 
                                     disabled={isReturned}
-                                    checked={!!returnSelection[item.id]} 
+                                    checked={isSelected} 
                                     onChange={() => toggleReturn(item.id)} 
                                     style={{cursor: 'pointer', transform: 'scale(1.2)'}} />
                             </td>
                             <td>{item.item_name} {isReturned && <span className="badge bg-secondary ms-2" style={{fontSize:'0.6rem'}}>RETURNED</span>}</td>
                             <td className="fw-bold">{item.sold_weight} g</td>
                             <td className="text-muted">{item.sold_rate}</td>
+                            
+                            {/* RESTOCK OPTION */}
+                            <td className="text-center">
+                                {isSelected && !isReturned && (
+                                    <div className="form-check d-inline-block">
+                                        <input 
+                                            className="form-check-input" 
+                                            type="checkbox" 
+                                            id={`own-${item.id}`}
+                                            checked={!!restoreToOwn[item.id]}
+                                            onChange={() => toggleRestoreToOwn(item.id)}
+                                        />
+                                        <label className="form-check-label small ms-1 text-primary fw-bold" htmlFor={`own-${item.id}`} 
+                                               title="Check this if you want to keep this item in your own inventory instead of returning it to the Neighbour Shop (for Neighbour items).">
+                                            Keep in Own Stock
+                                        </label>
+                                    </div>
+                                )}
+                            </td>
+
                             <td className="text-end fw-bold text-danger">₹{parseFloat(item.total_item_price).toLocaleString()}</td>
                         </tr>
                         );
