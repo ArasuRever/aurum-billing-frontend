@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Container, Table, Button, Form, InputGroup, Row, Col, Badge, Modal, Alert } from 'react-bootstrap';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar } from 'react-icons/fa';
+import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar, FaUndo } from 'react-icons/fa';
 import InvoiceTemplate from '../components/InvoiceTemplate';
 import { useReactToPrint } from 'react-to-print';
 import { useBusiness } from '../context/BusinessContext';
 
 const BillHistory = () => {
     const { settings } = useBusiness();
+    const navigate = useNavigate();
     const [bills, setBills] = useState([]);
     const [filteredBills, setFilteredBills] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -17,7 +19,7 @@ const BillHistory = () => {
     const [selectedBill, setSelectedBill] = useState(null);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [invoiceItems, setInvoiceItems] = useState([]);
-    const componentRef = React.useRef();
+    const componentRef = useRef();
 
     // --- NEIGHBOUR RESTORE MODAL STATES ---
     const [showNeighbourModal, setShowNeighbourModal] = useState(false);
@@ -53,77 +55,14 @@ const BillHistory = () => {
 
     // --- DELETE LOGIC ---
     const handleDeleteClick = async (bill) => {
-        // 1. Fetch details first to check for Neighbour Items
-        try {
-            const res = await api.getInvoiceDetails(bill.id);
-            const items = res.data.items || [];
-
-            // Check if any item is from NEIGHBOUR (and wasn't just a manual non-inventory item)
-            // Note: We need source_type. If your getInvoiceDetails doesn't join inventory, 
-            // we rely on the fact that we can't easily check without backend help OR 
-            // we assume the backend delete check is enough. 
-            // BETTER STRATEGY: The backend 'delete' route returns the logic, but we want UI choice.
-            // Let's assume we can fetch item details or check 'item_id' existence.
-            
-            // To be accurate, we'll optimistically open the modal IF we suspect neighbour items,
-            // OR we can just ask the user every time? No, that's annoying.
-            // Let's do a quick check:
-            
-            let hasNeighbourItem = false;
-            
-            // We need to check the ITEM source. 
-            // Since sale_items doesn't store source_type, we have to rely on the backend.
-            // However, for this UI, we can try to assume based on your workflow.
-            // If you want 100% accuracy, we'd need to fetch full item details.
-            
-            // For now, let's implement the 'Safe Delete' which handles it on backend, 
-            // BUT since you requested the popup, we will ask the user "IF" they know.
-            // OR simpler: We fetch the items and check against inventory in the background?
-            
-            // ACTUAL SOLUTION: We'll assume the user might know, OR we check the API.
-            // Since we can't easily check 'source_type' from just sale_items without a join,
-            // we will fetch the item details one by one? No, too slow.
-            
-            // Let's modify the flow: 
-            // We'll proceed to delete. If backend sees neighbour items, maybe it could warn us?
-            // No, DELETE actions shouldn't "ask" after the fact.
-            
-            // REVISED STRATEGY: 
-            // For this project, we will check items. If any item has a 'neighbour_shop_id' stored (if you added that column to sale_items), it's easy.
-            // If not, we will assume standard delete UNLESS the user explicitly uses a "Delete & Manage Stock" button?
-            // No, let's stick to your request: Pop up.
-            
-            // To make this work seamlessly without heavy backend changes for "checking":
-            // We will just fetch the full invoice details (which you already have API for).
-            // AND we will add a small check on the backend `getInvoiceDetails` to include `source_type` in the items list.
-            
-            // *Assuming `getInvoiceDetails` returns items with their current inventory source_type*
-            // (You might need to update the backend GET route to JOIN inventory_items to get source_type).
-            
-            // For now, let's assume we proceed. If you want to be safe, we can just show the modal 
-            // for ALL deletions, asking "How to handle stock?", but that's tedious.
-            
-            // Let's try to detect based on current data:
-            // Use `api.searchBillingItem` (which is search-item route) or just rely on `items` if they have metadata.
-            
-            // **TEMPORARY FRONTEND LOGIC**: 
-            // We will ask the user for *every* delete if they want to 'Manage Return Options' 
-            // or just 'Standard Delete'. 
-            // Actually, let's just trigger the modal. It's safer.
-            
-            setBillToDelete(bill);
-            setShowNeighbourModal(true); 
-
-        } catch (err) {
-            console.error(err);
-            alert("Error checking bill details");
-        }
+        setBillToDelete(bill);
+        setShowNeighbourModal(true); 
     };
 
     const confirmDelete = async () => {
         if (!billToDelete) return;
         try {
-            await api.deleteBill(billToDelete.id, restoreMode); // Passing restoreMode query param handled in api.js
+            await api.deleteBill(billToDelete.id, restoreMode); 
             setShowNeighbourModal(false);
             setBillToDelete(null);
             fetchHistory(); // Refresh list
@@ -137,7 +76,7 @@ const BillHistory = () => {
     const handleViewInvoice = async (bill) => {
         try {
             setLoading(true);
-            const res = await api.getInvoiceDetails(bill.id); // { sale, items }
+            const res = await api.getInvoiceDetails(bill.id); // Returns { sale, items }
             setSelectedBill(res.data.sale);
             setInvoiceItems(res.data.items);
             setShowInvoiceModal(true);
@@ -155,62 +94,94 @@ const BillHistory = () => {
 
     return (
         <Container fluid className="p-3">
+            {/* Header & Search */}
             <div className="d-flex justify-content-between align-items-center mb-4">
-                <h2 className="text-primary fw-bold mb-0">Bill History</h2>
-                <InputGroup style={{ maxWidth: '300px' }}>
-                    <InputGroup.Text><FaSearch /></InputGroup.Text>
-                    <Form.Control
-                        placeholder="Search invoice, customer..."
-                        value={searchTerm}
-                        onChange={handleSearch}
-                    />
-                </InputGroup>
+                <h2 className="text-primary fw-bold mb-0">
+                    <i className="bi bi-clock-history me-2"></i>Bill History
+                </h2>
+                <div className="d-flex gap-2">
+                    <Button variant="outline-secondary" onClick={fetchHistory}>Refresh</Button>
+                    <InputGroup style={{ maxWidth: '300px' }}>
+                        <InputGroup.Text><FaSearch /></InputGroup.Text>
+                        <Form.Control
+                            placeholder="Search invoice, customer..."
+                            value={searchTerm}
+                            onChange={handleSearch}
+                        />
+                    </InputGroup>
+                </div>
             </div>
 
+            {/* Bill Table */}
             <div className="table-responsive shadow-sm rounded">
                 <Table hover className="align-middle mb-0 bg-white">
                     <thead className="bg-light text-secondary">
                         <tr>
-                            <th>Date</th>
                             <th>Invoice #</th>
+                            <th>Date</th>
                             <th>Customer</th>
-                            <th>Items</th>
-                            <th className="text-end">Total</th>
+                            <th className="text-end">Amount</th>
                             <th className="text-center">Status</th>
-                            <th className="text-center">Actions</th>
+                            <th className="text-center" style={{ minWidth: '160px' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="7" className="text-center py-4">Loading...</td></tr>
-                        ) : filteredBills.map(bill => (
-                            <tr key={bill.id}>
-                                <td>{new Date(bill.created_at).toLocaleDateString()}</td>
-                                <td className="fw-bold text-primary">{bill.invoice_number}</td>
-                                <td>
-                                    <div>{bill.customer_name}</div>
-                                    <small className="text-muted">{bill.customer_phone}</small>
-                                </td>
-                                <td>
-                                    {/* Show count or first item name if available in listing */}
-                                    <Badge bg="secondary">View Details</Badge>
-                                </td>
-                                <td className="text-end fw-bold">₹{parseFloat(bill.final_amount).toLocaleString()}</td>
-                                <td className="text-center">
-                                    <Badge bg={bill.payment_status === 'PAID' ? 'success' : 'warning'}>
-                                        {bill.payment_status}
-                                    </Badge>
-                                </td>
-                                <td className="text-center">
-                                    <Button variant="outline-info" size="sm" className="me-2" onClick={() => handleViewInvoice(bill)}>
-                                        <FaEye />
-                                    </Button>
-                                    <Button variant="outline-danger" size="sm" onClick={() => handleDeleteClick(bill)}>
-                                        <FaTrash />
-                                    </Button>
-                                </td>
-                            </tr>
-                        ))}
+                            <tr><td colSpan="6" className="text-center py-4">Loading...</td></tr>
+                        ) : filteredBills.length === 0 ? (
+                            <tr><td colSpan="6" className="text-center py-4">No bills found.</td></tr>
+                        ) : (
+                            filteredBills.map(bill => (
+                                <tr key={bill.id}>
+                                    <td className="fw-bold text-primary">{bill.invoice_number}</td>
+                                    <td>{new Date(bill.created_at).toLocaleDateString()}</td>
+                                    <td>
+                                        <div>{bill.customer_name}</div>
+                                        <small className="text-muted">{bill.customer_phone}</small>
+                                    </td>
+                                    <td className="text-end fw-bold">₹{parseFloat(bill.final_amount).toLocaleString()}</td>
+                                    <td className="text-center">
+                                        <Badge bg={bill.payment_status === 'PAID' ? 'success' : 'warning'}>
+                                            {bill.payment_status}
+                                        </Badge>
+                                    </td>
+                                    <td className="text-center">
+                                        {/* --- FIXED RETURN BUTTON --- */}
+                                        <Button 
+                                            variant="outline-warning" 
+                                            size="sm" 
+                                            className="me-2" 
+                                            title="Return / Exchange"
+                                            // Updated Path to match App.jsx
+                                            onClick={() => navigate(`/billing/return?saleId=${bill.invoice_number || bill.id}`)}
+                                        >
+                                            <FaUndo />
+                                        </Button>
+
+                                        {/* VIEW / PRINT BUTTON */}
+                                        <Button 
+                                            variant="outline-info" 
+                                            size="sm" 
+                                            className="me-2" 
+                                            title="View Invoice"
+                                            onClick={() => handleViewInvoice(bill)}
+                                        >
+                                            <FaEye />
+                                        </Button>
+
+                                        {/* DELETE / VOID BUTTON */}
+                                        <Button 
+                                            variant="outline-danger" 
+                                            size="sm" 
+                                            title="Void Bill"
+                                            onClick={() => handleDeleteClick(bill)}
+                                        >
+                                            <FaTrash />
+                                        </Button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </Table>
             </div>
@@ -226,7 +197,7 @@ const BillHistory = () => {
                             <InvoiceTemplate 
                                 sale={selectedBill} 
                                 items={invoiceItems} 
-                                business={settings} // Pass business settings for logo/address
+                                business={settings} 
                             />
                         </div>
                     )}

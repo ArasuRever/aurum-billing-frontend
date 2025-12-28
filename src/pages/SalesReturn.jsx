@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import axios from 'axios'; 
 import { api } from '../api'; 
 import InvoiceTemplate from '../components/InvoiceTemplate';
 
@@ -10,12 +9,6 @@ const styles = {
     position: 'sticky',
     top: '20px',
     zIndex: 100
-  },
-  inputClean: {
-    border: '1px solid #dee2e6',
-    borderRadius: '4px',
-    padding: '4px 8px',
-    width: '100%'
   },
   cardHeader: {
     borderBottom: 'none',
@@ -44,7 +37,7 @@ function SalesReturn() {
   const [sale, setSale] = useState(null);
   const [saleItems, setSaleItems] = useState([]);
   const [returnSelection, setReturnSelection] = useState({}); 
-  const [restoreToOwn, setRestoreToOwn] = useState({}); // NEW: Track ownership choice
+  const [restoreToOwn, setRestoreToOwn] = useState({}); // Track ownership choice
   const [shops, setShops] = useState([]); 
   const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 }); 
 
@@ -80,30 +73,35 @@ function SalesReturn() {
     styleSheet.innerText = printStyles;
     document.head.appendChild(styleSheet);
 
-    // 1. Fetch Shops
-    api.getShops().then(res => setShops(res.data)).catch(console.error);
+    // 1. Fetch Data
+    const fetchData = async () => {
+        try {
+            const shopsRes = await api.getShops();
+            setShops(shopsRes.data);
 
-    // 2. Fetch Daily Rates
-    api.getDailyRates().then(res => {
-        if(res.data && (res.data.GOLD || res.data.SILVER)) {
-            setRates(prev => ({ ...prev, ...res.data }));
-        }
-    }).catch(console.error);
+            const ratesRes = await api.getDailyRates();
+            if(ratesRes.data && (ratesRes.data.GOLD || ratesRes.data.SILVER)) {
+                setRates(prev => ({ ...prev, ...ratesRes.data }));
+            }
 
-    if (saleId) {
-        // Using direct axios here as per original file, but api.getInvoiceDetails is cleaner if available
-        const fetchUrl = `http://localhost:5000/api/billing/invoice/${saleId}`;
-        axios.get(fetchUrl).then(res => {
-            setSale(res.data.sale);
-            setSaleItems(res.data.items);
-        }).catch(err => {
-            alert("Invoice not found");
+            if (saleId) {
+                // CHANGED: Use centralized API call instead of hardcoded axios
+                const invoiceRes = await api.getInvoiceDetails(saleId);
+                setSale(invoiceRes.data.sale);
+                setSaleItems(invoiceRes.data.items);
+            }
+        } catch (err) {
+            console.error(err);
+            if (!saleId) return; // Don't redirect if just loading component without ID (edge case)
+            alert("Invoice not found or Error loading data");
             navigate('/bill-history');
-        });
-    }
+        }
+    };
+
+    fetchData();
 
     return () => document.head.removeChild(styleSheet);
-  }, [saleId]);
+  }, [saleId, navigate]);
 
   // --- LIVE TOTAL CALC ---
   useEffect(() => {
@@ -263,14 +261,13 @@ function SalesReturn() {
     const payload = {
         sale_id: sale.id,
         customer_id: sale.customer_id, 
-        // MAP RETURNED ITEMS WITH NEW 'RESTORE_TO_OWN' FLAG
         returned_items: itemsToReturn.map(item => ({
             sale_item_id: item.id,
             original_inventory_id: item.item_id,
             item_name: item.item_name,
             gross_weight: item.sold_weight,
             refund_amount: item.total_item_price,
-            restore_to_own: !!restoreToOwn[item.id] // Send the choice to backend
+            restore_to_own: !!restoreToOwn[item.id] 
         })),
         exchange_items: newCart.map(item => ({
             id: item.item_id, 
@@ -287,9 +284,7 @@ function SalesReturn() {
     };
 
     try {
-        const res = api.processReturn 
-            ? await api.processReturn(payload)
-            : await axios.post('http://localhost:5000/api/billing/process-return', payload);
+        const res = await api.processReturn(payload);
         
         if(res.data.new_invoice) {
             const invoiceData = {
@@ -372,7 +367,7 @@ function SalesReturn() {
                             <th>Item Name</th>
                             <th>Sold Weight</th>
                             <th>Sold Rate</th>
-                            {/* NEW COLUMN */}
+                            {/* UPDATED COLUMN HEADER */}
                             <th className="text-center text-primary" style={{width:'200px'}}>Restocking Option</th>
                             <th className="text-end">Refund Amount</th>
                         </tr>
@@ -395,22 +390,25 @@ function SalesReturn() {
                             <td className="fw-bold">{item.sold_weight} g</td>
                             <td className="text-muted">{item.sold_rate}</td>
                             
-                            {/* RESTOCK OPTION */}
+                            {/* UPDATED RESTOCK OPTION: Always Visible but Disabled if not selected */}
                             <td className="text-center">
-                                {isSelected && !isReturned && (
-                                    <div className="form-check d-inline-block">
+                                {!isReturned ? (
+                                    <div className={`form-check d-inline-block ${!isSelected ? 'opacity-50' : ''}`}>
                                         <input 
                                             className="form-check-input" 
                                             type="checkbox" 
                                             id={`own-${item.id}`}
                                             checked={!!restoreToOwn[item.id]}
                                             onChange={() => toggleRestoreToOwn(item.id)}
+                                            disabled={!isSelected} 
                                         />
                                         <label className="form-check-label small ms-1 text-primary fw-bold" htmlFor={`own-${item.id}`} 
-                                               title="Check this if you want to keep this item in your own inventory instead of returning it to the Neighbour Shop (for Neighbour items).">
+                                               title="Check this to keep item in Own Stock instead of returning to Neighbour.">
                                             Keep in Own Stock
                                         </label>
                                     </div>
+                                ) : (
+                                    <span className="small text-muted">-</span>
                                 )}
                             </td>
 
