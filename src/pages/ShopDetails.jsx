@@ -46,7 +46,8 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([{ type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null }]);
+    // Added 'quantity: 1' to default row state
+    setItemRows([{ type: defaultMetal, desc: '', gross: '', quantity: 1, wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE' }]);
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
@@ -75,29 +76,25 @@ function ShopDetails() {
       try {
           const res = await api.searchBillingItem(query);
           if (res.data && res.data.length > 0) {
-              // For simplicity, pick the first match or ask if multiple? 
-              // Given "no major UI rework", we'll just pick the first accurate match 
-              // or show a simple alert if multiple. 
-              const item = res.data[0];
+              const item = res.data[0]; // Pick first match
               const newRows = [...itemRows];
               
               newRows[index] = {
                   ...newRows[index],
                   desc: item.item_name,
-                  gross: item.gross_weight,
+                  gross: item.gross_weight, // Pre-fill weight
                   type: item.metal_type,
-                  inventory_id: item.id, // Store ID for deduction
-                  pure: item.pure_weight // Pre-calculate based on existing data if needed
+                  inventory_id: item.id, 
+                  pure: item.pure_weight,
+                  stock_type: item.stock_type, // Capture stock type
+                  quantity: 1, // Default to 1
+                  wast: item.wastage_percent || 0
               };
               
-              // We reset wastage/calc to defaults or 0 since inventory item usually stores final weights
-              // But here we might want to let the user define trade parameters (Touch/Wastage)
-              // So we just fill the basics.
-              
               setItemRows(newRows);
-              alert(`Selected: ${item.item_name} (ID: ${item.id})`);
+              alert(`Selected: ${item.item_name} (Stock: ${item.stock_type})`);
           } else {
-              alert("No item found in inventory.");
+              alert("No item found.");
           }
       } catch (err) {
           console.error(err);
@@ -107,7 +104,7 @@ function ShopDetails() {
 
   const addRow = () => {
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null }]);
+    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', quantity: 1, wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE' }]);
   };
   
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
@@ -139,7 +136,10 @@ function ShopDetails() {
                 const wast = parseFloat(row.wast) || 0;
                 const pure = parseFloat(row.pure) || 0;
                 const mcTotal = parseFloat(row.mc_total) || 0; 
+                const qty = parseInt(row.quantity) || 1;
+
                 let details = `${row.gross}g`;
+                if(row.stock_type === 'BULK') details += ` (x${qty})`; // Add Qty to description
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
                 if(row.mc_rate) details += `, MC: ${row.mc_rate}/g`;
                 
@@ -152,7 +152,8 @@ function ShopDetails() {
                     silver_weight: isSilver ? pure : 0,
                     cash_amount: mcTotal,
                     transfer_cash: false,
-                    inventory_item_id: row.inventory_id // Pass the linked ID
+                    inventory_item_id: row.inventory_id,
+                    quantity: qty // Send Quantity to backend
                 };
                 promises.push(api.shopTransaction(payload));
             });
@@ -194,6 +195,7 @@ function ShopDetails() {
     return { remGold: Math.max(0, origGold - paidGold).toFixed(3), remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), isSettled: t.is_settled };
   };
   
+  // ... (Edit/Settle handlers same as before) ...
   const handleEditChange = (field, value) => {
     const newState = { ...editForm, [field]: value };
     const g = parseFloat(field==='gross'?value:newState.gross)||0;
@@ -283,6 +285,7 @@ function ShopDetails() {
          {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
+      {/* ... (Lists code same as before, omitted for brevity as UI structure is same) ... */}
       <div className="row g-4">
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
@@ -390,6 +393,8 @@ function ShopDetails() {
                         <th style={{width:'15%'}}>Type</th>
                         <th>Item Name (Inventory)</th>
                         <th style={{width:'12%'}}>Gross Wt</th>
+                        {/* NEW QTY COLUMN */}
+                        <th style={{width:'8%'}}>Qty</th>
                         <th style={{width:'15%'}}>Touch %</th>
                         <th style={{width:'10%'}}>MC Rate</th>
                         <th style={{width:'10%'}}>Total MC</th>
@@ -407,20 +412,35 @@ function ShopDetails() {
                             <td>
                                 <div className="input-group input-group-sm">
                                     <input className="form-control" value={row.desc} onChange={e => handleRowChange(i, 'desc', e.target.value)} placeholder="Type Desc" />
-                                    {/* SEARCH BUTTON */}
                                     <button className="btn btn-primary" onClick={() => searchAndFill(i)} title="Search Inventory">
                                         <i className="bi bi-search"></i>
                                     </button>
                                 </div>
-                                {row.inventory_id && <small className="d-block text-success text-start" style={{fontSize:'0.7rem'}}>Linked: ID #{row.inventory_id}</small>}
+                                {row.inventory_id && (
+                                    <small className="d-block text-success text-start" style={{fontSize:'0.7rem'}}>
+                                        Linked: #{row.inventory_id} {row.stock_type === 'BULK' ? '(Bulk)' : ''}
+                                    </small>
+                                )}
                             </td>
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
+                            
+                            {/* QUANTITY INPUT */}
+                            <td>
+                                <input 
+                                    className="form-control form-control-sm text-center" 
+                                    type="number" 
+                                    value={row.quantity} 
+                                    onChange={e => handleRowChange(i, 'quantity', e.target.value)}
+                                    disabled={row.stock_type !== 'BULK'} // Only enable for bulk
+                                    style={{fontWeight: 'bold', color: row.stock_type === 'BULK' ? '#000' : '#aaa'}}
+                                />
+                            </td>
+
                             <td>
                                 <div className="input-group input-group-sm">
                                     <input className="form-control" type="number" value={row.wast} onChange={e => handleRowChange(i, 'wast', e.target.value)} />
                                     <button className="btn btn-outline-secondary px-1" style={{fontSize:'0.7rem'}} 
                                         onClick={() => handleRowChange(i, 'calcType', row.calcType === 'ADD' ? 'MUL' : 'ADD')}
-                                        title={row.calcType==='ADD' ? 'Adding Wastage' : 'Multiplying Touch'}
                                     >
                                         {row.calcType==='ADD' ? '+ %' : 'x %'}
                                     </button>
@@ -441,6 +461,7 @@ function ShopDetails() {
                     </div>
                   </div>
                 )}
+                {/* ... (Bulk mode unchanged) ... */}
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
                     <div className="mb-3 text-center">
