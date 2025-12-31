@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { useReactToPrint } from 'react-to-print'; // IMPORT PRINT HOOK
-import BarcodePrintComponent from '../components/BarcodePrintComponent'; // IMPORT BARCODE COMPONENT
+import { useReactToPrint } from 'react-to-print'; 
+import BarcodePrintComponent from '../components/BarcodePrintComponent'; 
 
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -28,15 +28,21 @@ function VendorDetails() {
   const [viewMode, setViewMode] = useState('overview'); 
   const [itemSearch, setItemSearch] = useState('');
   
+  // Modals & Forms
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [purityMode, setPurityMode] = useState('TOUCH'); 
 
-  // --- SELECTION & PRINTING STATE ---
+  // --- NEW: RESTOCK & HISTORY STATE ---
+  const [restockItem, setRestockItem] = useState(null);
+  const [restockForm, setRestockForm] = useState({ gross_weight: '', quantity: '', invoice_no: '', wastage_percent: '' });
+  const [historyItem, setHistoryItem] = useState(null);
+  const [itemHistory, setItemHistory] = useState([]);
+
   const [selectedIds, setSelectedIds] = useState({});
   const printRef = useRef();
 
-  // Modals & Forms
+  // Vendor & Agent Modals
   const [showEditVendor, setShowEditVendor] = useState(false);
   const [editVendorForm, setEditVendorForm] = useState({});
   const [showManageAgents, setShowManageAgents] = useState(false);
@@ -125,7 +131,41 @@ function VendorDetails() {
 
   const selectedCount = Object.values(selectedIds).filter(Boolean).length;
 
-  // --- ACTIONS ---
+  // --- RESTOCK LOGIC ---
+  const openRestockModal = (item) => {
+      setRestockItem(item);
+      setRestockForm({ gross_weight: '', quantity: '', invoice_no: '', wastage_percent: item.wastage_percent });
+  };
+
+  const handleRestockSubmit = async () => {
+      if (!restockForm.gross_weight || !restockForm.quantity) return alert("Weight and Qty required");
+      try {
+          await api.axiosInstance.post(`/inventory/restock/${restockItem.id}`, {
+              added_gross_weight: restockForm.gross_weight,
+              added_quantity: restockForm.quantity,
+              wastage_percent: restockForm.wastage_percent,
+              invoice_no: restockForm.invoice_no
+          });
+          alert("Restock Successful!");
+          setRestockItem(null);
+          loadAllData();
+      } catch (err) {
+          alert("Restock Failed: " + (err.response?.data?.error || err.message));
+      }
+  };
+
+  // --- HISTORY LOGIC ---
+  const openHistoryModal = async (item) => {
+      setHistoryItem(item);
+      try {
+          const res = await api.axiosInstance.get(`/inventory/history/${item.id}`);
+          setItemHistory(res.data);
+      } catch (err) {
+          console.error(err);
+      }
+  };
+
+  // ... (Other handlers unchanged) ...
   const handleUpdateVendor = async () => { try { await api.updateVendor(id, editVendorForm); alert('Vendor Updated'); setShowEditVendor(false); loadAllData(); } catch (err) { alert('Update failed'); } };
   
   const handleSaveAgent = async () => {
@@ -145,7 +185,6 @@ function VendorDetails() {
   const handleEditAgent = (agent) => { setAgentForm({ id: agent.id, agent_name: agent.agent_name, agent_phone: agent.agent_phone, agent_photo: null }); setIsEditingAgent(true); };
   const handleDeleteAgent = async (agentId) => { if(window.confirm("Delete?")) { await api.deleteAgent(agentId); const res = await api.getVendorAgents(id); setAgents(res.data); }};
 
-  // --- STOCK FORM LOGIC ---
   const getAllowedMetals = () => {
     if (!vendor) return [];
     if (!vendor.vendor_type || vendor.vendor_type === 'BOTH') return productTypes;
@@ -296,6 +335,7 @@ function VendorDetails() {
 
   return (
     <div className="container-fluid pb-5">
+      {/* ... (Header and Add Stock Mode unchanged) ... */}
       <div className="d-flex justify-content-between align-items-center mb-3">
         <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/vendors')}><i className="bi bi-arrow-left me-1"></i> Back</button>
         <div className="d-flex gap-2">
@@ -385,7 +425,7 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-6">
-                {/* AVAILABLE STOCK CARD (UPDATED WITH BARCODE PRINTING) */}
+                {/* AVAILABLE STOCK CARD */}
                 <div className="card shadow-sm border-0 mb-4">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-success">Available Stock</h6>
@@ -407,9 +447,9 @@ function VendorDetails() {
                                     <th style={{width:'30px'}} className="text-center">
                                         <input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={availableItems.length > 0 && availableItems.every(i => selectedIds[i.id])} />
                                     </th>
-                                    <th>Date</th>
                                     <th>Image</th>
                                     <th>Details</th>
+                                    <th>Count</th>
                                     <th>Wt</th>
                                     <th>Actions</th>
                                 </tr>
@@ -421,18 +461,34 @@ function VendorDetails() {
                                         <td className="text-center">
                                             <input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} />
                                         </td>
-                                        <td className="small">{new Date(item.created_at).toLocaleDateString()}</td>
                                         <td>{item.item_image && <img src={item.item_image} style={{width:'40px',height:'40px'}} />}</td>
                                         <td>
                                             <div className="fw-bold small">{item.item_name}</div>
                                             <div className="small font-monospace text-muted">{item.barcode}</div>
-                                            {item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK ({item.quantity})</span>}
-                                            {item.huid && <span className="badge bg-info text-dark" style={{fontSize:'0.6rem'}}>HUID: {item.huid}</span>}
+                                            {item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK</span>}
                                         </td>
-                                        <td><div className="fw-bold">{item.gross_weight}g</div></td>
                                         <td>
-                                            <button className="btn btn-sm btn-link text-primary" onClick={() => startEditItem(item)}><i className="bi bi-pencil"></i></button>
-                                            <button className="btn btn-sm btn-link text-danger" onClick={() => handleDeleteItem(item.id)}><i className="bi bi-trash"></i></button>
+                                            {item.stock_type === 'BULK' ? (
+                                                <div className="small">
+                                                    <strong>{item.quantity}</strong> <span className="text-muted">/ {item.total_quantity_added || '-'}</span>
+                                                </div>
+                                            ) : '-'}
+                                        </td>
+                                        <td>
+                                            <div className="fw-bold">{item.gross_weight}g</div>
+                                            {item.stock_type === 'BULK' && <div className="small text-muted" style={{fontSize:'0.65rem'}}>Total: {item.total_weight_added || '-'}g</div>}
+                                        </td>
+                                        <td>
+                                            <div className="btn-group btn-group-sm">
+                                                {item.stock_type === 'BULK' && (
+                                                    <>
+                                                        <button className="btn btn-outline-success" onClick={() => openRestockModal(item)} title="Restock / Add Weight"><i className="bi bi-plus-lg"></i></button>
+                                                        <button className="btn btn-outline-secondary" onClick={() => openHistoryModal(item)} title="History"><i className="bi bi-clock-history"></i></button>
+                                                    </>
+                                                )}
+                                                <button className="btn btn-outline-primary" onClick={() => startEditItem(item)}><i className="bi bi-pencil"></i></button>
+                                                <button className="btn btn-outline-danger" onClick={() => handleDeleteItem(item.id)}><i className="bi bi-trash"></i></button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -440,7 +496,7 @@ function VendorDetails() {
                         </table>
                     </div>
                 </div>
-
+                {/* ... (Sold History table unchanged) ... */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold History</h6>
@@ -509,7 +565,65 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* RESTOCK MODAL */}
+      {restockItem && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog">
+                  <div className="modal-content">
+                      <div className="modal-header bg-success text-white">
+                          <h5 className="modal-title">Restock Bulk Item</h5>
+                          <button className="btn-close btn-close-white" onClick={() => setRestockItem(null)}></button>
+                      </div>
+                      <div className="modal-body">
+                          <p className="mb-2"><strong>Item:</strong> {restockItem.item_name} ({restockItem.barcode})</p>
+                          <div className="row g-2 mb-3">
+                              <div className="col-6"><label className="small">Added Weight</label><input className="form-control" type="number" value={restockForm.gross_weight} onChange={e => setRestockForm({...restockForm, gross_weight: e.target.value})} /></div>
+                              <div className="col-6"><label className="small">Added Qty</label><input className="form-control" type="number" value={restockForm.quantity} onChange={e => setRestockForm({...restockForm, quantity: e.target.value})} /></div>
+                          </div>
+                          <div className="mb-3"><label className="small">Invoice / Ref</label><input className="form-control" value={restockForm.invoice_no} onChange={e => setRestockForm({...restockForm, invoice_no: e.target.value})} /></div>
+                          <div className="mb-3"><label className="small">New Wastage % (Optional)</label><input className="form-control" type="number" value={restockForm.wastage_percent} onChange={e => setRestockForm({...restockForm, wastage_percent: e.target.value})} /></div>
+                      </div>
+                      <div className="modal-footer">
+                          <button className="btn btn-secondary" onClick={() => setRestockItem(null)}>Cancel</button>
+                          <button className="btn btn-success" onClick={handleRestockSubmit}>Confirm Restock</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* HISTORY MODAL */}
+      {historyItem && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog modal-lg">
+                  <div className="modal-content">
+                      <div className="modal-header">
+                          <h5 className="modal-title">Batch History: {historyItem.item_name}</h5>
+                          <button className="btn-close" onClick={() => setHistoryItem(null)}></button>
+                      </div>
+                      <div className="modal-body p-0">
+                          <table className="table table-striped mb-0 small">
+                              <thead className="table-light"><tr><th>Date</th><th>Type</th><th>Qty Change</th><th>Wt Change</th><th>Ref</th></tr></thead>
+                              <tbody>
+                                  {itemHistory.map((log, i) => (
+                                      <tr key={i}>
+                                          <td>{new Date(log.created_at).toLocaleString()}</td>
+                                          <td><span className={`badge ${log.quantity_change > 0 ? 'bg-success' : 'bg-danger'}`}>{log.action_type}</span></td>
+                                          <td className="fw-bold">{log.quantity_change > 0 ? '+' : ''}{log.quantity_change}</td>
+                                          <td>{log.weight_change > 0 ? '+' : ''}{log.weight_change} g</td>
+                                          <td>{log.related_bill_no || '-'}</td>
+                                      </tr>
+                                  ))}
+                                  {itemHistory.length === 0 && <tr><td colSpan="5" className="text-center p-3">No history found</td></tr>}
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ... (Other modals kept for brevity: ShowManageAgents, ShowEditVendor, ShowEditItem, PrintComponent) ... */}
       {showManageAgents && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -550,14 +664,10 @@ function VendorDetails() {
                   <div className="modal-body">
                      <input className="form-control mb-2" placeholder="Name" value={editVendorForm.business_name} onChange={e => setEditVendorForm({...editVendorForm, business_name: e.target.value})} />
                      <input className="form-control mb-2" placeholder="Contact" value={editVendorForm.contact_number} onChange={e => setEditVendorForm({...editVendorForm, contact_number: e.target.value})} />
-                     
                      <select className="form-select mb-2" value={editVendorForm.vendor_type} onChange={e => setEditVendorForm({...editVendorForm, vendor_type: e.target.value})}>
                         <option value="BOTH">All Metals (Both)</option>
-                        {productTypes.map(t => (
-                            <option key={t.id} value={t.name}>{t.name} Only</option>
-                        ))}
+                        {productTypes.map(t => (<option key={t.id} value={t.name}>{t.name} Only</option>))}
                      </select>
-                     
                      <textarea className="form-control mb-2" placeholder="Address" value={editVendorForm.address} onChange={e => setEditVendorForm({...editVendorForm, address: e.target.value})} />
                      <input className="form-control mb-2" placeholder="GST" value={editVendorForm.gst_number} onChange={e => setEditVendorForm({...editVendorForm, gst_number: e.target.value})} />
                   </div>
@@ -583,13 +693,8 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* HIDDEN PRINT COMPONENT */}
       <div style={{ display: 'none' }}>
-          <BarcodePrintComponent 
-            ref={printRef} 
-            items={getItemsToPrint()} 
-            shopName="AURUM" 
-          />
+          <BarcodePrintComponent ref={printRef} items={getItemsToPrint()} shopName="AURUM" />
       </div>
     </div>
   );

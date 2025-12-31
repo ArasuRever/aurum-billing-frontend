@@ -27,31 +27,26 @@ function Billing() {
   // --- ENTRY STATE ---
   const [entry, setEntry] = useState({
     item_id: null, item_name: '', item_desc: '', barcode: '',
-    metal_type: 'GOLD', gross_weight: '', wastage_percent: '', making_charges: '', 
-    item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0
+    metal_type: 'GOLD', gross_weight: '', quantity: 1, wastage_percent: '', making_charges: '', 
+    item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0, stock_type: 'SINGLE'
   });
 
-  // --- EXCHANGE STATE ---
+  // ... (Exchange, Search, Cart states same as before) ...
   const [exchangeEntry, setExchangeEntry] = useState({
     name: '', metal_type: 'GOLD', gross_weight: '', 
     less_percent: '', less_weight: '', net_weight: 0, 
     rate: '', total: 0
   });
   const [exchangeItems, setExchangeItems] = useState([]);
-
-  // --- GENERAL STATE ---
   const [searchResults, setSearchResults] = useState([]);
   const [cart, setCart] = useState([]);
   const [shops, setShops] = useState([]); 
   const [includeGST, setIncludeGST] = useState(false);
-  
-  // --- PAYMENT & INVOICE STATE ---
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [payment, setPayment] = useState({ cash: '', online: '' });
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastBill, setLastBill] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -67,7 +62,7 @@ function Billing() {
     return () => document.head.removeChild(styleSheet);
   }, []);
 
-  // --- SEARCH LOGIC ---
+  // ... (Search Logic same as before) ...
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (customerSearch.length > 2 && !selectedCustomer) {
@@ -99,11 +94,10 @@ function Billing() {
     } catch(err) { alert(err.response?.data?.error || "Error adding customer"); }
   };
 
-  // --- CART HANDLERS ---
   const handleEntryChange = (field, value) => {
     let updates = { [field]: value };
     if (field === 'item_name' && entry.item_id) { 
-        updates.item_id = null; updates.barcode = ''; updates.item_image = null; updates.neighbour_id = null; 
+        updates.item_id = null; updates.barcode = ''; updates.item_image = null; updates.neighbour_id = null; updates.stock_type = 'SINGLE';
     }
     if (field === 'item_desc') {
         const upper = value.toUpperCase();
@@ -133,9 +127,6 @@ function Billing() {
           }
       }
 
-      // --- BULK ITEM LOGIC ---
-      // If item is bulk, we clear the weight so the user MUST enter it manually.
-      // If item is single, we pre-fill the weight from inventory.
       const isBulk = item.stock_type === 'BULK';
       const weightToUse = isBulk ? '' : item.gross_weight; 
 
@@ -145,6 +136,7 @@ function Billing() {
           barcode: item.barcode, 
           metal_type: item.metal_type,
           gross_weight: weightToUse, 
+          quantity: 1, // Default Qty
           neighbour_id: item.neighbour_shop_id || null,
           calc_method: method, 
           wastage_percent: wast, 
@@ -152,14 +144,11 @@ function Billing() {
           fixed_price: fixed, 
           item_image: item.item_image,
           default_wastage: wast,
-          stock_type: item.stock_type // Pass the stock type to cart
+          stock_type: item.stock_type
       });
   };
 
   const performAddToCart = (itemToAdd) => {
-    // --- DUPLICATE CHECK LOGIC ---
-    // If it's a SINGLE item, block duplicates.
-    // If it's a BULK item, ALLOW duplicates (because we might sell 2.5g and 1.5g of the same bulk stock).
     if (itemToAdd.stock_type !== 'BULK' && itemToAdd.item_id && cart.find(c => c.item_id === itemToAdd.item_id)) {
         return alert("Single Item already in cart.");
     }
@@ -171,15 +160,14 @@ function Billing() {
     let appliedRate = itemToAdd.metal_type === 'SILVER' ? rates.SILVER : rates.GOLD;
     if (itemToAdd.calc_method === 'FIXED_PRICE') appliedRate = itemToAdd.fixed_price;
 
-    // Generate unique Key for React (Bulk items share item_id but need unique list keys)
     const uniqueKey = itemToAdd.stock_type === 'BULK' 
         ? `${itemToAdd.item_id}-BULK-${Date.now()}` 
         : (itemToAdd.item_id || `MANUAL-${Date.now()}`);
 
     setCart(prev => [...prev, {
       ...itemToAdd,
-      id: itemToAdd.item_id || uniqueKey, // Keep original ID for backend processing
-      unique_key: uniqueKey, // Use this for React Keys
+      id: itemToAdd.item_id || uniqueKey, 
+      unique_key: uniqueKey, 
       isManual: !itemToAdd.item_id,
       wastage_weight: wastWt,
       rate: appliedRate,
@@ -192,7 +180,7 @@ function Billing() {
     let finalName = entry.item_name || entry.item_desc;
     if (!finalName || !entry.gross_weight) return alert("Name & Weight Required");
     performAddToCart({ ...entry, item_name: finalName, default_wastage: entry.wastage_percent });
-    setEntry({ item_id: null, item_name: '', item_desc: '', barcode: '', metal_type: 'GOLD', gross_weight: '', wastage_percent: '', making_charges: '', item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0 });
+    setEntry({ item_id: null, item_name: '', item_desc: '', barcode: '', metal_type: 'GOLD', gross_weight: '', quantity: 1, wastage_percent: '', making_charges: '', item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0, stock_type: 'SINGLE' });
   };
 
   const updateCartItem = (index, field, value) => {
@@ -215,6 +203,7 @@ function Billing() {
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
   const clearCart = () => { if(window.confirm("Clear cart?")) { setCart([]); setPayment({cash:'', online:''}); } };
 
+  // ... (Calculation, Exchange, and Totals logic same as before) ...
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -228,7 +217,6 @@ function Billing() {
     return 0;
   };
 
-  // --- EXCHANGE & TOTALS ---
   const handleExchangeEntryChange = (field, value) => {
       const newData = { ...exchangeEntry, [field]: value };
       if (field === 'metal_type') newData.rate = value === 'SILVER' ? rates.SILVER : rates.GOLD;
@@ -328,6 +316,7 @@ function Billing() {
 
   return (
     <div className="container-fluid pb-5">
+      {/* ... (Customer and Search sections unchanged) ... */}
       <div className="row g-3">
         <div className="col-md-9">
           {/* 1. CUSTOMER SEARCH */}
@@ -415,7 +404,7 @@ function Billing() {
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                 <thead className="table-light small text-center">
-                  <tr><th style={{width: '20%'}}>Item</th><th style={{width: '8%'}}>Weight</th><th style={{width: '18%'}}>Wastage</th><th style={{width: '10%'}}>MC</th><th style={{width: '10%'}}>Rate</th><th style={{width: '10%'}}>Disc</th><th style={{width: '15%'}}>Total</th><th style={{width: '5%'}}></th></tr>
+                  <tr><th style={{width: '20%'}}>Item</th><th style={{width: '8%'}}>Weight</th><th style={{width:'8%'}}>Qty</th><th style={{width: '18%'}}>Wastage</th><th style={{width: '10%'}}>MC</th><th style={{width: '10%'}}>Rate</th><th style={{width: '10%'}}>Disc</th><th style={{width: '15%'}}>Total</th><th style={{width: '5%'}}></th></tr>
                 </thead>
                 <tbody>
                   {cart.map((item, i) => (
@@ -432,6 +421,16 @@ function Billing() {
                           )}
                       </td>
 
+                      {/* EDITABLE QUANTITY FOR BULK */}
+                      <td>
+                          {item.stock_type === 'BULK' ? (
+                             <input type="number" className="form-control form-control-sm text-center fw-bold" 
+                                value={item.quantity} onChange={e => updateCartItem(i, 'quantity', e.target.value)} />
+                          ) : (
+                             <span className="text-muted">1</span>
+                          )}
+                      </td>
+
                       <td>
                           <div className="input-group input-group-sm">
                               <input type="number" className="form-control text-center px-1" placeholder="%" value={item.wastage_percent} onChange={e => updateCartItem(i, 'wastage_percent', e.target.value)} />
@@ -445,13 +444,14 @@ function Billing() {
                       <td><button className="btn btn-sm text-danger" onClick={() => removeFromCart(i)}><i className="bi bi-x-lg"></i></button></td>
                     </tr>
                   ))}
-                  {cart.length===0 && <tr><td colSpan="8" className="text-center py-5 text-muted">Cart is empty</td></tr>}
+                  {cart.length===0 && <tr><td colSpan="9" className="text-center py-5 text-muted">Cart is empty</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* 4. OLD ITEM EXCHANGE (Unchanged) */}
+          {/* ... (Exchange, Summary, Modals same as before) ... */}
+          {/* 4. OLD ITEM EXCHANGE */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-2"><span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Old Item Exchange</span></div>
              <div className="card-body p-0">
