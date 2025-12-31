@@ -46,7 +46,14 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([{ type: defaultMetal, desc: '', gross: '', quantity: 1, wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE' }]);
+    
+    // FIX: Default metalOverride to 'AUTO' so logic detects based on name
+    setItemRows([{ 
+        type: defaultMetal, desc: '', gross: '', quantity: 1, 
+        wast: 92, calcType: 'MUL', 
+        mc_rate: '', mc_total: 0, pure: 0, 
+        inventory_id: null, stock_type: 'SINGLE', metalOverride: 'AUTO' 
+    }]);
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
@@ -64,7 +71,30 @@ function ShopDetails() {
     if (field === 'gross' || field === 'mc_rate') {
       newRows[index].mc_total = (gross * mcRate).toFixed(2);
     }
+    
+    // Reset override to AUTO if user changes the item type, so we re-detect
+    if (field === 'type') {
+        newRows[index].metalOverride = 'AUTO';
+    }
+
     setItemRows(newRows);
+  };
+
+  const toggleMetalOverride = (index) => {
+      const newRows = [...itemRows];
+      const current = newRows[index].metalOverride;
+      // Cycle: AUTO -> GOLD -> SILVER -> AUTO
+      if (current === 'AUTO') newRows[index].metalOverride = 'GOLD';
+      else if (current === 'GOLD') newRows[index].metalOverride = 'SILVER';
+      else newRows[index].metalOverride = 'AUTO';
+      
+      setItemRows(newRows);
+  };
+
+  const toggleStockType = (index) => {
+      const newRows = [...itemRows];
+      newRows[index].stock_type = newRows[index].stock_type === 'SINGLE' ? 'BULK' : 'SINGLE';
+      setItemRows(newRows);
   };
 
   // --- SEARCH INVENTORY ---
@@ -87,11 +117,12 @@ function ShopDetails() {
                   pure: item.pure_weight,
                   stock_type: item.stock_type, 
                   quantity: 1,
-                  wast: item.wastage_percent || 0
+                  wast: item.wastage_percent || 0,
+                  metalOverride: 'AUTO' // Let backend/logic detect from type
               };
               
               setItemRows(newRows);
-              alert(`Selected: ${item.item_name} (Stock: ${item.stock_type})`);
+              alert(`Selected: ${item.item_name}`);
           } else {
               alert("No item found.");
           }
@@ -103,10 +134,29 @@ function ShopDetails() {
 
   const addRow = () => {
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', quantity: 1, wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE' }]);
+    setItemRows([...itemRows, { 
+        type: defaultMetal, desc: '', gross: '', quantity: 1, 
+        wast: 92, calcType: 'MUL', 
+        mc_rate: '', mc_total: 0, pure: 0, 
+        inventory_id: null, stock_type: 'SINGLE', metalOverride: 'AUTO' 
+    }]);
   };
   
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
+
+  // Helper to check metal type for a row
+  const getMetalTypeForRow = (row) => {
+      if (row.metalOverride === 'GOLD') return 'GOLD';
+      if (row.metalOverride === 'SILVER') return 'SILVER';
+      
+      // AUTO MODE: Detect from Type Name or Product Types
+      const typeStr = (row.type || '').trim().toUpperCase();
+      const matchedType = productTypes.find(t => (t.name || '').toUpperCase() === typeStr);
+      const dbMetalType = matchedType ? (matchedType.metal_type || '').toUpperCase() : typeStr;
+      
+      const isSilver = dbMetalType.includes('SILVER') || dbMetalType === 'AG';
+      return isSilver ? 'SILVER' : 'GOLD';
+  };
 
   const handleMainSubmit = async () => {
     if (loading) return;
@@ -130,6 +180,15 @@ function ShopDetails() {
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
+            // Validation
+            for (const row of validRows) {
+                const p = parseFloat(row.pure) || 0;
+                if (p <= 0) {
+                    setLoading(false);
+                    return alert(`Item '${row.desc || 'Unnamed'}' has 0 Pure Weight. Please check Purity/Touch %.`);
+                }
+            }
+
             validRows.forEach(row => {
                 const gross = parseFloat(row.gross) || 0;
                 const wast = parseFloat(row.wast) || 0;
@@ -140,22 +199,16 @@ function ShopDetails() {
                 let details = `${row.gross}g`;
                 if(row.stock_type === 'BULK') details += ` (x${qty})`; 
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
-                if(row.mc_rate) details += `, MC: ${row.mc_rate}/g`;
                 
-                // --- ROBUST METAL TYPE DETECTION ---
-                // 1. Check Product Types Match
-                const matchedType = productTypes.find(t => t.name === row.type);
-                
-                // 2. Check "SILVER" string in name (case-insensitive) fallback
-                const isSilver = matchedType 
-                    ? matchedType.metal_type === 'SILVER' 
-                    : row.type.toUpperCase().includes('SILVER') || row.type.toUpperCase().includes('AG');
+                // CORRECT DETECTION
+                const metalType = getMetalTypeForRow(row);
+                const isSilver = (metalType === 'SILVER');
                 
                 const payload = {
                     shop_id: id, action: actionType, description: `${row.desc || row.type} (${details})`,
                     gross_weight: gross, wastage_percent: wast, making_charges: mcTotal,
-                    pure_weight: !isSilver ? pure : 0,  // GOLD goes here
-                    silver_weight: isSilver ? pure : 0, // SILVER goes here
+                    pure_weight: !isSilver ? pure : 0,  
+                    silver_weight: isSilver ? pure : 0, 
                     cash_amount: mcTotal,
                     transfer_cash: false,
                     inventory_item_id: row.inventory_id,
@@ -173,7 +226,6 @@ function ShopDetails() {
                 }));
             }
         } else {
-            // BULK MODE
             promises.push(api.shopTransaction({
                 shop_id: id, action: actionType, description: form.description || 'Manual Entry',
                 pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash,
@@ -290,6 +342,7 @@ function ShopDetails() {
          {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
+      {/* Transaction Lists */}
       <div className="row g-4">
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
@@ -396,20 +449,23 @@ function ShopDetails() {
                       <thead className="table-light"><tr>
                         <th style={{width:'15%'}}>Type</th>
                         <th>Item Name (Inventory)</th>
+                        <th style={{width:'8%'}}>Category</th>
                         <th style={{width:'12%'}}>Gross Wt</th>
                         <th style={{width:'8%'}}>Qty</th>
-                        <th style={{width:'15%'}}>Touch %</th>
+                        <th style={{width:'12%'}}>Touch %</th>
                         <th style={{width:'10%'}}>MC Rate</th>
                         <th style={{width:'10%'}}>Total MC</th>
-                        <th style={{width:'12%'}}>Pure Wt</th>
+                        <th style={{width:'10%'}}>Pure Wt</th>
                         <th></th>
                       </tr></thead>
                       <tbody>
-                        {itemRows.map((row, i) => (
+                        {itemRows.map((row, i) => {
+                            const detectedMetal = getMetalTypeForRow(row);
+                            const isSilver = (detectedMetal === 'SILVER');
+                            return (
                           <tr key={i}>
                             <td>
                                 <select className="form-select form-select-sm" value={row.type} onChange={e => handleRowChange(i, 'type', e.target.value)}>
-                                    {/* Ensure the selected type is always an option */}
                                     {!productTypes.find(t => t.name === row.type) && row.type && (
                                         <option value={row.type}>{row.type}</option>
                                     )}
@@ -429,17 +485,35 @@ function ShopDetails() {
                                     </small>
                                 )}
                             </td>
+                            
+                            {/* VISUAL TOGGLE */}
+                            <td>
+                                <span 
+                                    className={`badge cursor-pointer ${isSilver ? 'bg-secondary text-white' : 'bg-warning text-dark'}`}
+                                    onClick={() => toggleMetalOverride(i)}
+                                    title={`Click to switch. Currently: ${row.metalOverride} (Detected: ${detectedMetal})`}
+                                >
+                                    {isSilver ? 'SILVER' : 'GOLD'}
+                                </span>
+                            </td>
+
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
                             
+                            {/* FIXED QUANTITY & STOCK TYPE */}
                             <td>
-                                <input 
-                                    className="form-control form-control-sm text-center" 
-                                    type="number" 
-                                    value={row.quantity} 
-                                    onChange={e => handleRowChange(i, 'quantity', e.target.value)}
-                                    disabled={row.stock_type !== 'BULK'}
-                                    style={{fontWeight: 'bold', color: row.stock_type === 'BULK' ? '#000' : '#aaa'}}
-                                />
+                                <div className="input-group input-group-sm">
+                                    <input 
+                                        className="form-control text-center" 
+                                        type="number" 
+                                        value={row.quantity} 
+                                        onChange={e => handleRowChange(i, 'quantity', e.target.value)}
+                                    />
+                                    {!row.inventory_id && (
+                                        <button className="btn btn-outline-secondary px-1" title="Toggle Bulk/Single" onClick={() => toggleStockType(i)}>
+                                            {row.stock_type==='BULK' ? 'B' : 'S'}
+                                        </button>
+                                    )}
+                                </div>
                             </td>
 
                             <td>
@@ -457,7 +531,7 @@ function ShopDetails() {
                             <td className="bg-light fw-bold text-primary">{row.pure}</td>
                             <td><button className="btn btn-sm text-danger" onClick={() => removeRow(i)}><i className="bi bi-x"></i></button></td>
                           </tr>
-                        ))}
+                        )})}
                       </tbody>
                     </table>
                     <button className="btn btn-sm btn-outline-dark mb-3" onClick={addRow}>+ Add Item Row</button>
@@ -468,6 +542,7 @@ function ShopDetails() {
                   </div>
                 )}
                 
+                {/* ... (Legacy Settle Mode unchanged) ... */}
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
                     <div className="mb-3 text-center">
@@ -501,6 +576,7 @@ function ShopDetails() {
         </div>
       )}
 
+      {/* Edit and Settle modals unchanged */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">
