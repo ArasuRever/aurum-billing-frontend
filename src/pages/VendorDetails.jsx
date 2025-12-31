@@ -496,26 +496,41 @@ function VendorDetails() {
                         </table>
                     </div>
                 </div>
-                {/* ... (Sold History table unchanged) ... */}
+                {/* SOLD HISTORY TABLE (UPDATED) */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 className="mb-0 fw-bold text-secondary">Sold History</h6>
+                        <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
                         <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary">
-                            {soldItems.length} Sold &bull; {soldWeight} g
+                            {soldItems.length} Records &bull; {soldWeight} g
                         </span>
                     </div>
                     <div className="table-responsive" style={{maxHeight:'40vh'}}>
                         <table className="table table-hover align-middle mb-0">
-                            <thead className="table-light sticky-top small"><tr><th>Date</th><th>Image</th><th>Details</th><th>Wt</th><th>Status</th></tr></thead>
+                            <thead className="table-light sticky-top small">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Image</th>
+                                    <th>Details</th>
+                                    <th>Qty</th> {/* ADDED */}
+                                    <th>Wt</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                {soldItems.length === 0 && <tr><td colSpan="5" className="text-center py-3 text-muted">No sold items</td></tr>}
+                                {soldItems.length === 0 && <tr><td colSpan="6" className="text-center py-3 text-muted">No sold items</td></tr>}
                                 {soldItems.map((item, idx) => (
                                     <tr key={idx} className="bg-light opacity-75">
                                         <td className="small text-muted">{new Date(item.created_at).toLocaleDateString()}</td>
                                         <td>{item.item_image && <img src={item.item_image} className="rounded border" style={{width:'35px',height:'35px',objectFit:'cover',filter:'grayscale(100%)'}} />}</td>
                                         <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div></td>
+                                        <td className="fw-bold text-center">{item.quantity || 1}</td> {/* ADDED */}
                                         <td className="fw-bold">{item.gross_weight}g</td>
-                                        <td><span className="badge bg-secondary">SOLD</span></td>
+                                        <td>
+                                            {item.status === 'LENT' ? 
+                                                <span className="badge bg-warning text-dark">LENT</span> : 
+                                                <span className="badge bg-secondary">SOLD</span>
+                                            }
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

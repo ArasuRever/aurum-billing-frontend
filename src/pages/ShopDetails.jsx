@@ -46,7 +46,6 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    // Added 'quantity: 1' to default row state
     setItemRows([{ type: defaultMetal, desc: '', gross: '', quantity: 1, wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE' }]);
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
@@ -76,18 +75,18 @@ function ShopDetails() {
       try {
           const res = await api.searchBillingItem(query);
           if (res.data && res.data.length > 0) {
-              const item = res.data[0]; // Pick first match
+              const item = res.data[0]; 
               const newRows = [...itemRows];
               
               newRows[index] = {
                   ...newRows[index],
                   desc: item.item_name,
-                  gross: item.gross_weight, // Pre-fill weight
-                  type: item.metal_type,
+                  gross: item.gross_weight, 
+                  type: item.metal_type, 
                   inventory_id: item.id, 
                   pure: item.pure_weight,
-                  stock_type: item.stock_type, // Capture stock type
-                  quantity: 1, // Default to 1
+                  stock_type: item.stock_type, 
+                  quantity: 1,
                   wast: item.wastage_percent || 0
               };
               
@@ -139,21 +138,28 @@ function ShopDetails() {
                 const qty = parseInt(row.quantity) || 1;
 
                 let details = `${row.gross}g`;
-                if(row.stock_type === 'BULK') details += ` (x${qty})`; // Add Qty to description
+                if(row.stock_type === 'BULK') details += ` (x${qty})`; 
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
                 if(row.mc_rate) details += `, MC: ${row.mc_rate}/g`;
                 
-                const isSilver = row.type === 'SILVER';
+                // --- ROBUST METAL TYPE DETECTION ---
+                // 1. Check Product Types Match
+                const matchedType = productTypes.find(t => t.name === row.type);
+                
+                // 2. Check "SILVER" string in name (case-insensitive) fallback
+                const isSilver = matchedType 
+                    ? matchedType.metal_type === 'SILVER' 
+                    : row.type.toUpperCase().includes('SILVER') || row.type.toUpperCase().includes('AG');
                 
                 const payload = {
                     shop_id: id, action: actionType, description: `${row.desc || row.type} (${details})`,
                     gross_weight: gross, wastage_percent: wast, making_charges: mcTotal,
-                    pure_weight: !isSilver ? pure : 0,
-                    silver_weight: isSilver ? pure : 0,
+                    pure_weight: !isSilver ? pure : 0,  // GOLD goes here
+                    silver_weight: isSilver ? pure : 0, // SILVER goes here
                     cash_amount: mcTotal,
                     transfer_cash: false,
                     inventory_item_id: row.inventory_id,
-                    quantity: qty // Send Quantity to backend
+                    quantity: qty 
                 };
                 promises.push(api.shopTransaction(payload));
             });
@@ -195,7 +201,6 @@ function ShopDetails() {
     return { remGold: Math.max(0, origGold - paidGold).toFixed(3), remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), isSettled: t.is_settled };
   };
   
-  // ... (Edit/Settle handlers same as before) ...
   const handleEditChange = (field, value) => {
     const newState = { ...editForm, [field]: value };
     const g = parseFloat(field==='gross'?value:newState.gross)||0;
@@ -285,7 +290,6 @@ function ShopDetails() {
          {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
-      {/* ... (Lists code same as before, omitted for brevity as UI structure is same) ... */}
       <div className="row g-4">
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
@@ -393,7 +397,6 @@ function ShopDetails() {
                         <th style={{width:'15%'}}>Type</th>
                         <th>Item Name (Inventory)</th>
                         <th style={{width:'12%'}}>Gross Wt</th>
-                        {/* NEW QTY COLUMN */}
                         <th style={{width:'8%'}}>Qty</th>
                         <th style={{width:'15%'}}>Touch %</th>
                         <th style={{width:'10%'}}>MC Rate</th>
@@ -406,6 +409,10 @@ function ShopDetails() {
                           <tr key={i}>
                             <td>
                                 <select className="form-select form-select-sm" value={row.type} onChange={e => handleRowChange(i, 'type', e.target.value)}>
+                                    {/* Ensure the selected type is always an option */}
+                                    {!productTypes.find(t => t.name === row.type) && row.type && (
+                                        <option value={row.type}>{row.type}</option>
+                                    )}
                                     {productTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                 </select>
                             </td>
@@ -424,14 +431,13 @@ function ShopDetails() {
                             </td>
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
                             
-                            {/* QUANTITY INPUT */}
                             <td>
                                 <input 
                                     className="form-control form-control-sm text-center" 
                                     type="number" 
                                     value={row.quantity} 
                                     onChange={e => handleRowChange(i, 'quantity', e.target.value)}
-                                    disabled={row.stock_type !== 'BULK'} // Only enable for bulk
+                                    disabled={row.stock_type !== 'BULK'}
                                     style={{fontWeight: 'bold', color: row.stock_type === 'BULK' ? '#000' : '#aaa'}}
                                 />
                             </td>
@@ -461,7 +467,7 @@ function ShopDetails() {
                     </div>
                   </div>
                 )}
-                {/* ... (Bulk mode unchanged) ... */}
+                
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
                     <div className="mb-3 text-center">
@@ -495,7 +501,6 @@ function ShopDetails() {
         </div>
       )}
 
-      {/* Edit and Settle modals remain mostly standard but could be updated if deeper precision is needed for custom metals. For now, they rely on Gold/Silver/Cash balance columns. */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">
