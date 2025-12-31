@@ -8,7 +8,6 @@ function Navbar() {
 
   // Helper to highlight the main dropdown parent if any child is active
   const isDropdownActive = (paths) => {
-      // Handle root path '/' specifically for Dashboard
       if (paths.includes('/') && location.pathname === '/') return 'active fw-bold';
       return paths.some(p => p !== '/' && location.pathname.startsWith(p)) ? 'active fw-bold' : '';
   };
@@ -19,7 +18,6 @@ function Navbar() {
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
       <div className="container-fluid">
         <Link className="navbar-brand fw-bold d-flex align-items-center" to="/">
-           {/* DYNAMIC BRANDING */}
            {settings.logo ? (
              <img 
                src={settings.logo} 
@@ -39,7 +37,7 @@ function Navbar() {
         <div className="collapse navbar-collapse" id="navbarNav">
           <ul className="navbar-nav ms-auto align-items-center">
             
-            {/* 1. SALES & BILLING GROUP */}
+            {/* 1. SALES & BILLING */}
             <li className="nav-item dropdown">
               <a className={`nav-link dropdown-toggle ${isDropdownActive(['/billing', '/bill-history'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Sales
@@ -53,9 +51,8 @@ function Navbar() {
               </ul>
             </li>
 
-            {/* 2. INVENTORY GROUP */}
+            {/* 2. INVENTORY */}
             <li className="nav-item dropdown">
-              {/* Added '/audit' to the active check list below */}
               <a className={`nav-link dropdown-toggle ${isDropdownActive(['/inventory', '/old-metal', '/refinery', '/add-stock', '/audit'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Inventory
               </a>
@@ -66,22 +63,18 @@ function Navbar() {
                     </Link>
                 </li>
                 <li><Link className="dropdown-item" to="/inventory"><i className="bi bi-box-seam me-2"></i>Manage Inventory</Link></li>
-                
-                {/* --- NEW AUDIT LINK --- */}
                 <li>
                     <Link className="dropdown-item fw-bold text-primary" to="/audit">
                         <i className="bi bi-upc-scan me-2"></i>Stock Audit (Tally)
                     </Link>
                 </li>
-                {/* ---------------------- */}
-
                 <li><hr className="dropdown-divider" /></li>
                 <li><Link className="dropdown-item" to="/old-metal"><i className="bi bi-recycle me-2"></i>Scrap / Old Metal</Link></li>
                 <li><Link className="dropdown-item" to="/refinery"><i className="bi bi-droplet-half me-2"></i>Refinery</Link></li>
               </ul>
             </li>
 
-            {/* 3. PARTNERS GROUP */}
+            {/* 3. PARTNERS */}
             <li className="nav-item dropdown">
               <a className={`nav-link dropdown-toggle ${isDropdownActive(['/vendors', '/shops'])}`} href="#" role="button" data-bs-toggle="dropdown">
                 Partners
@@ -97,12 +90,20 @@ function Navbar() {
                 <Link className={`nav-link ${isActive('/customers')}`} to="/customers">Customers</Link>
             </li>
 
-            {/* 5. LEDGER */}
+            {/* --- 5. NEW CHITS TAB --- */}
+            <li className="nav-item">
+                <Link className={`nav-link ${isActive('/chits')}`} to="/chits">
+                    <i className="bi bi-piggy-bank me-1"></i>Chits
+                </Link>
+            </li>
+            {/* ------------------------ */}
+
+            {/* 6. LEDGER */}
             <li className="nav-item">
                 <Link className={`nav-link ${isActive('/ledger')}`} to="/ledger">Ledger</Link>
             </li>
 
-            {/* 6. SETTINGS */}
+            {/* 7. SETTINGS */}
             <li className="nav-item ms-2">
                 <Link className={`nav-link ${isActive('/settings')}`} to="/settings" title="Settings">
                     <i className="bi bi-gear-fill"></i>

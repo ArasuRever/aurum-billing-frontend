@@ -8,7 +8,7 @@ function ShopDetails() {
   const [shop, setShop] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [productTypes, setProductTypes] = useState([]); // NEW
+  const [productTypes, setProductTypes] = useState([]); 
 
   // States
   const [activeModal, setActiveModal] = useState(null); 
@@ -46,7 +46,7 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([{ type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
+    setItemRows([{ type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null }]);
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
@@ -67,9 +67,47 @@ function ShopDetails() {
     setItemRows(newRows);
   };
 
+  // --- SEARCH INVENTORY ---
+  const searchAndFill = async (index) => {
+      const query = prompt("Enter Item Name / Barcode to Search:");
+      if (!query) return;
+
+      try {
+          const res = await api.searchBillingItem(query);
+          if (res.data && res.data.length > 0) {
+              // For simplicity, pick the first match or ask if multiple? 
+              // Given "no major UI rework", we'll just pick the first accurate match 
+              // or show a simple alert if multiple. 
+              const item = res.data[0];
+              const newRows = [...itemRows];
+              
+              newRows[index] = {
+                  ...newRows[index],
+                  desc: item.item_name,
+                  gross: item.gross_weight,
+                  type: item.metal_type,
+                  inventory_id: item.id, // Store ID for deduction
+                  pure: item.pure_weight // Pre-calculate based on existing data if needed
+              };
+              
+              // We reset wastage/calc to defaults or 0 since inventory item usually stores final weights
+              // But here we might want to let the user define trade parameters (Touch/Wastage)
+              // So we just fill the basics.
+              
+              setItemRows(newRows);
+              alert(`Selected: ${item.item_name} (ID: ${item.id})`);
+          } else {
+              alert("No item found in inventory.");
+          }
+      } catch (err) {
+          console.error(err);
+          alert("Error searching item.");
+      }
+  };
+
   const addRow = () => {
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0 }]);
+    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', wast: '', calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null }]);
   };
   
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
@@ -105,9 +143,6 @@ function ShopDetails() {
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
                 if(row.mc_rate) details += `, MC: ${row.mc_rate}/g`;
                 
-                // Map custom types: 'SILVER' goes to silver_weight, everything else (Gold, Platinum, etc.) goes to pure_weight (Gold) col for now
-                // NOTE: If you need separate columns for Platinum in Shop Ledger, schema update is needed. 
-                // For now, we treat non-Silver as Gold-equivalent in the 'pure_weight' column.
                 const isSilver = row.type === 'SILVER';
                 
                 const payload = {
@@ -116,7 +151,8 @@ function ShopDetails() {
                     pure_weight: !isSilver ? pure : 0,
                     silver_weight: isSilver ? pure : 0,
                     cash_amount: mcTotal,
-                    transfer_cash: false 
+                    transfer_cash: false,
+                    inventory_item_id: row.inventory_id // Pass the linked ID
                 };
                 promises.push(api.shopTransaction(payload));
             });
@@ -148,7 +184,7 @@ function ShopDetails() {
   };
 
   const handleDeleteTxn = async (txnId) => {
-    if(!window.confirm("Undo/Delete this transaction? Balance will be reversed.")) return;
+    if(!window.confirm("Undo/Delete this transaction? Balance will be reversed. If linked to inventory, item will be restored.")) return;
     try { await api.deleteShopTransaction(txnId); loadData(); } catch(err) { alert('Delete Failed'); }
   };
 
@@ -352,7 +388,7 @@ function ShopDetails() {
                     <table className="table table-bordered align-middle small text-center mb-3">
                       <thead className="table-light"><tr>
                         <th style={{width:'15%'}}>Type</th>
-                        <th>Item Name</th>
+                        <th>Item Name (Inventory)</th>
                         <th style={{width:'12%'}}>Gross Wt</th>
                         <th style={{width:'15%'}}>Touch %</th>
                         <th style={{width:'10%'}}>MC Rate</th>
@@ -364,12 +400,20 @@ function ShopDetails() {
                         {itemRows.map((row, i) => (
                           <tr key={i}>
                             <td>
-                                {/* DYNAMIC METAL DROPDOWN IN SHOP DETAILS */}
                                 <select className="form-select form-select-sm" value={row.type} onChange={e => handleRowChange(i, 'type', e.target.value)}>
                                     {productTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                 </select>
                             </td>
-                            <td><input className="form-control form-control-sm" value={row.desc} onChange={e => handleRowChange(i, 'desc', e.target.value)} /></td>
+                            <td>
+                                <div className="input-group input-group-sm">
+                                    <input className="form-control" value={row.desc} onChange={e => handleRowChange(i, 'desc', e.target.value)} placeholder="Type Desc" />
+                                    {/* SEARCH BUTTON */}
+                                    <button className="btn btn-primary" onClick={() => searchAndFill(i)} title="Search Inventory">
+                                        <i className="bi bi-search"></i>
+                                    </button>
+                                </div>
+                                {row.inventory_id && <small className="d-block text-success text-start" style={{fontSize:'0.7rem'}}>Linked: ID #{row.inventory_id}</small>}
+                            </td>
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
                             <td>
                                 <div className="input-group input-group-sm">

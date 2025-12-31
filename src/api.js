@@ -114,4 +114,13 @@ export const api = {
   createGstBill: (data) => axios.post(`${API_URL}/gst/create`, data),
   updateGstBill: (id, data) => axios.put(`${API_URL}/gst/update/${id}`, data),
   deleteGstBill: (id) => axios.delete(`${API_URL}/gst/${id}`),
+
+  // --- CHIT SCHEMES ---
+  createChitPlan: (data) => axios.post(`${API_URL}/chits/create`, data),
+  getActiveChitCustomers: () => axios.get(`${API_URL}/chits/active-customers`), // NEW
+  getCustomerChits: (customerId) => axios.get(`${API_URL}/chits/customer/${customerId}`),
+  getChitDetails: (id) => axios.get(`${API_URL}/chits/details/${id}`),
+  payChitInstallment: (data) => axios.post(`${API_URL}/chits/pay`, data),
+  addChitBonus: (id) => axios.post(`${API_URL}/chits/add-bonus/${id}`),
+  closeChitPlan: (id) => axios.post(`${API_URL}/chits/close/${id}`),
 };

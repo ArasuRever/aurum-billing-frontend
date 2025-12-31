@@ -11,16 +11,33 @@ function CustomerDetails() {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
 
-  // Payment Modal State
+  // Payment Modal (Regular Billing)
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
   const [payAmount, setPayAmount] = useState('');
   const [payMode, setPayMode] = useState('CASH');
 
+  // --- CHIT STATES ---
+  const [chits, setChits] = useState([]);
+  const [showChitModal, setShowChitModal] = useState(false); // To Create Plan
+  const [newChit, setNewChit] = useState({ plan_type: 'AMOUNT', plan_name: '', monthly_amount: '' });
+  
+  const [showChitPayModal, setShowChitPayModal] = useState(false); // To Pay Installment
+  const [selectedChit, setSelectedChit] = useState(null);
+  const [chitInstallmentAmount, setChitInstallmentAmount] = useState('');
+
   useEffect(() => { loadData(); }, [phone]);
 
   const loadData = async () => {
-    try { const res = await api.getCustomerDetails(phone); setData(res.data); } catch (err) { alert("Error loading customer data"); }
+    try { 
+        const res = await api.getCustomerDetails(phone); 
+        setData(res.data);
+        // Load Chits
+        if (res.data.customer && res.data.customer.id) {
+            const chitRes = await api.getCustomerChits(res.data.customer.id);
+            setChits(chitRes.data);
+        }
+    } catch (err) { alert("Error loading customer data"); }
   };
 
   // --- PROFILE EDIT ---
@@ -40,10 +57,10 @@ function CustomerDetails() {
     } catch(err) { alert("Error updating"); }
   };
 
-  // --- PAYMENTS ---
+  // --- REGULAR PAYMENTS (BILLING) ---
   const openPayModal = (sale) => {
       setSelectedBill(sale);
-      setPayAmount(sale.balance_amount); // Default to full balance
+      setPayAmount(sale.balance_amount);
       setShowPayModal(true);
   };
 
@@ -57,7 +74,7 @@ function CustomerDetails() {
               note: "Balance Payment"
           });
           setShowPayModal(false);
-          loadData(); // Refresh to see updated balance
+          loadData();
       } catch (err) { alert(err.response?.data?.error || "Payment Failed"); }
   };
 
@@ -66,14 +83,60 @@ function CustomerDetails() {
     try { await api.deleteBill(saleId); loadData(); } catch(err) { alert("Error deleting"); }
   };
 
+  // --- CHIT LOGIC ---
+  const handleCreateChit = async () => {
+      if(!newChit.plan_name || !newChit.monthly_amount) return alert("Fill all fields");
+      try {
+          await api.createChitPlan({
+              customer_id: data.customer.id,
+              ...newChit
+          });
+          setShowChitModal(false);
+          loadData();
+          setNewChit({ plan_type: 'AMOUNT', plan_name: '', monthly_amount: '' });
+      } catch(err) { alert(err.response?.data?.error || "Failed"); }
+  };
+
+  const openChitPayModal = (chit) => {
+      setSelectedChit(chit);
+      setChitInstallmentAmount(chit.monthly_amount); // Default to monthly due
+      setShowChitPayModal(true);
+  };
+
+  const handleChitPayment = async () => {
+      if(!chitInstallmentAmount || chitInstallmentAmount <= 0) return alert("Invalid Amount");
+      try {
+          const res = await api.payChitInstallment({
+              chit_id: selectedChit.id,
+              amount: chitInstallmentAmount
+          });
+          if(res.data.gold_weight > 0) {
+              alert(`Payment Successful! Added ${parseFloat(res.data.gold_weight).toFixed(3)}g gold.`);
+          } else {
+              alert("Payment Successful!");
+          }
+          setShowChitPayModal(false);
+          loadData();
+      } catch(err) { alert(err.response?.data?.error || "Failed"); }
+  };
+
+  const handleAddBonus = async (chitId) => {
+      if(!window.confirm("Add 12th Month Bonus? This will mark the plan as MATURED.")) return;
+      try {
+          await api.addChitBonus(chitId);
+          loadData();
+          alert("Bonus Added!");
+      } catch(err) { alert("Error adding bonus"); }
+  };
+
   if (!data) return <div className="p-5 text-center">Loading...</div>;
 
-  const { customer, history, payments } = data; // Now includes 'payments' array
+  const { customer, history, payments } = data; 
   const totalSpent = history.reduce((acc, curr) => acc + parseFloat(curr.final_amount), 0);
   const totalDebt = history.reduce((acc, curr) => acc + parseFloat(curr.balance_amount || 0), 0);
 
   return (
-    <div className="container-fluid">
+    <div className="container-fluid pb-5">
       {/* HEADER */}
       <div className="d-flex align-items-center mb-4">
         <button className="btn btn-outline-secondary me-3" onClick={() => navigate('/customers')}><i className="bi bi-arrow-left"></i></button>
@@ -85,7 +148,6 @@ function CustomerDetails() {
         <div className="col-md-4">
            <div className="card shadow-sm h-100">
               <div className="card-body text-center p-4">
-                 {/* PROFILE IMAGE & EDIT LOGIC (Same as before) */}
                  <div className="mb-3 position-relative d-inline-block">
                     {isEditing ? (
                         <>
@@ -126,13 +188,18 @@ function CustomerDetails() {
            </div>
         </div>
 
-        {/* RIGHT COLUMN: TABS (HISTORY & PAYMENTS) */}
+        {/* RIGHT COLUMN: TABS */}
         <div className="col-md-8">
             <div className="card shadow-sm h-100">
                 <div className="card-header bg-white p-0">
                     <ul className="nav nav-tabs card-header-tabs m-0" id="custTabs" role="tablist">
                         <li className="nav-item">
-                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#history">
+                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#chits">
+                                <i className="bi bi-piggy-bank me-2 text-warning"></i>Savings Scheme
+                            </button>
+                        </li>
+                        <li className="nav-item">
+                            <button className="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#history">
                                 <i className="bi bi-cart me-2"></i>Purchase History
                             </button>
                         </li>
@@ -145,8 +212,91 @@ function CustomerDetails() {
                 </div>
 
                 <div className="card-body p-0 tab-content">
-                    {/* TAB 1: PURCHASE HISTORY */}
-                    <div className="tab-pane fade show active" id="history">
+                    
+                    {/* --- TAB 1: SAVINGS SCHEME (CHITS) --- */}
+                    <div className="tab-pane fade show active" id="chits">
+                        <div className="p-3 d-flex justify-content-between align-items-center bg-light border-bottom">
+                            <h6 className="mb-0 fw-bold">Active Plans</h6>
+                            <button className="btn btn-sm btn-primary" onClick={() => setShowChitModal(true)}>
+                                <i className="bi bi-plus-circle me-1"></i> New Plan
+                            </button>
+                        </div>
+                        <div className="p-3">
+                            {chits.length === 0 ? <p className="text-center text-muted my-4">No Active Plans</p> : (
+                                <div className="row g-3">
+                                    {chits.map(chit => {
+                                        const progress = Math.min((chit.installments_paid / chit.duration_months) * 100, 100);
+                                        const isMatured = chit.status === 'MATURED';
+                                        
+                                        return (
+                                            <div key={chit.id} className="col-md-6">
+                                                <div className={`card h-100 ${isMatured ? 'border-success bg-success bg-opacity-10' : 'border-secondary'}`}>
+                                                    <div className="card-body">
+                                                        <div className="d-flex justify-content-between mb-2">
+                                                            <h6 className="fw-bold">{chit.plan_name}</h6>
+                                                            <span className={`badge ${chit.plan_type === 'GOLD' ? 'bg-warning text-dark' : 'bg-info text-dark'}`}>{chit.plan_type}</span>
+                                                        </div>
+                                                        <div className="small text-muted mb-3">
+                                                            Monthly: ₹{chit.monthly_amount} | Tenure: {chit.duration_months} Months
+                                                        </div>
+
+                                                        {/* Status Bar */}
+                                                        <div className="progress mb-2" style={{height:'8px'}}>
+                                                            <div className="progress-bar bg-success" style={{width: `${progress}%`}}></div>
+                                                        </div>
+                                                        <div className="d-flex justify-content-between small text-muted mb-3">
+                                                            <span>{chit.installments_paid} Paid</span>
+                                                            <span>{chit.duration_months} Total</span>
+                                                        </div>
+
+                                                        <div className="row g-0 border rounded mb-3 bg-white">
+                                                            <div className="col-6 border-end p-2 text-center">
+                                                                <small className="d-block text-muted">Total Saved</small>
+                                                                <span className="fw-bold text-success">₹{parseFloat(chit.total_paid).toLocaleString()}</span>
+                                                            </div>
+                                                            {chit.plan_type === 'GOLD' && (
+                                                                <div className="col-6 p-2 text-center">
+                                                                    <small className="d-block text-muted">Accumulated</small>
+                                                                    <span className="fw-bold text-warning">{parseFloat(chit.total_gold_weight).toFixed(3)}g</span>
+                                                                </div>
+                                                            )}
+                                                            {chit.plan_type === 'AMOUNT' && (
+                                                                 <div className="col-6 p-2 text-center">
+                                                                    <small className="d-block text-muted">Bonus</small>
+                                                                    <span className="fw-bold">{isMatured ? 'Yes' : 'Pending'}</span>
+                                                                 </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="d-flex gap-2">
+                                                            {!isMatured && (
+                                                                <button className="btn btn-sm btn-outline-success flex-grow-1" onClick={() => openChitPayModal(chit)}>
+                                                                    Pay Installment
+                                                                </button>
+                                                            )}
+                                                            {!isMatured && chit.plan_type === 'AMOUNT' && chit.installments_paid >= 11 && (
+                                                                <button className="btn btn-sm btn-warning flex-grow-1" onClick={() => handleAddBonus(chit.id)}>
+                                                                    Add Bonus
+                                                                </button>
+                                                            )}
+                                                            {isMatured && (
+                                                                <div className="w-100 text-center text-success fw-bold small py-1">
+                                                                    <i className="bi bi-check-circle-fill me-1"></i> MATURED
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* TAB 2: PURCHASE HISTORY */}
+                    <div className="tab-pane fade" id="history">
                         <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle">
                                 <thead className="table-light"><tr><th>Date</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Balance</th><th>Action</th></tr></thead>
@@ -165,13 +315,9 @@ function CustomerDetails() {
                                             </td>
                                             <td>
                                                 {sale.balance_amount > 0 ? (
-                                                    <button className="btn btn-sm btn-primary me-2" onClick={() => openPayModal(sale)}>
-                                                        <i className="bi bi-currency-rupee me-1"></i>Pay
-                                                    </button>
-                                                ) : (
-                                                    <button className="btn btn-sm btn-outline-secondary me-2" disabled><i className="bi bi-check-lg"></i></button>
-                                                )}
-                                                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteBill(sale.id)} title="Delete Bill"><i className="bi bi-trash"></i></button>
+                                                    <button className="btn btn-sm btn-primary me-2" onClick={() => openPayModal(sale)}>Pay</button>
+                                                ) : <button className="btn btn-sm btn-outline-secondary me-2" disabled><i className="bi bi-check-lg"></i></button>}
+                                                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteBill(sale.id)}><i className="bi bi-trash"></i></button>
                                             </td>
                                         </tr>
                                     ))}
@@ -181,7 +327,7 @@ function CustomerDetails() {
                         </div>
                     </div>
 
-                    {/* TAB 2: PAYMENT LOG */}
+                    {/* TAB 3: PAYMENT LOG */}
                     <div className="tab-pane fade" id="payments">
                          <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle">
@@ -195,9 +341,7 @@ function CustomerDetails() {
                                             <td>{p.payment_mode}</td>
                                             <td className="small text-muted">{p.note || '-'}</td>
                                         </tr>
-                                    )) : (
-                                        <tr><td colSpan="5" className="text-center py-4">No extra payments recorded</td></tr>
-                                    )}
+                                    )) : <tr><td colSpan="5" className="text-center py-4">No extra payments</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -207,7 +351,80 @@ function CustomerDetails() {
         </div>
       </div>
 
-      {/* PAYMENT MODAL */}
+      {/* --- MODAL 1: CREATE CHIT --- */}
+      {showChitModal && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog">
+                  <div className="modal-content">
+                      <div className="modal-header">
+                          <h5 className="modal-title">New Savings Plan</h5>
+                          <button className="btn-close" onClick={() => setShowChitModal(false)}></button>
+                      </div>
+                      <div className="modal-body">
+                          <div className="mb-3">
+                              <label className="form-label">Plan Name</label>
+                              <input className="form-control" placeholder="e.g. Monthly Gold Saver" 
+                                  value={newChit.plan_name} onChange={e => setNewChit({...newChit, plan_name: e.target.value})} />
+                          </div>
+                          <div className="mb-3">
+                              <label className="form-label">Plan Type</label>
+                              <select className="form-select" value={newChit.plan_type} onChange={e => setNewChit({...newChit, plan_type: e.target.value})}>
+                                  <option value="AMOUNT">Fixed Amount + Bonus (11+1)</option>
+                                  <option value="GOLD">Gold Accumulation (Weight)</option>
+                              </select>
+                              <div className="form-text small mt-1">
+                                  {newChit.plan_type === 'AMOUNT' ? 
+                                    "Customer pays for 11 months. 12th month paid by Shop as Bonus." : 
+                                    "Payment is converted to Gold Weight using daily 999 Bar Rate."}
+                              </div>
+                          </div>
+                          <div className="mb-3">
+                              <label className="form-label">Monthly Amount</label>
+                              <input type="number" className="form-control" placeholder="e.g. 1000"
+                                  value={newChit.monthly_amount} onChange={e => setNewChit({...newChit, monthly_amount: e.target.value})} />
+                          </div>
+                      </div>
+                      <div className="modal-footer">
+                          <button className="btn btn-secondary" onClick={() => setShowChitModal(false)}>Cancel</button>
+                          <button className="btn btn-success" onClick={handleCreateChit}>Create Plan</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- MODAL 2: PAY CHIT INSTALLMENT --- */}
+      {showChitPayModal && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+              <div className="modal-dialog">
+                  <div className="modal-content">
+                      <div className="modal-header bg-success text-white">
+                          <h5 className="modal-title">Pay Installment</h5>
+                          <button className="btn-close btn-close-white" onClick={() => setShowChitPayModal(false)}></button>
+                      </div>
+                      <div className="modal-body">
+                          <p className="mb-2"><strong>Plan:</strong> {selectedChit?.plan_name}</p>
+                          {selectedChit?.plan_type === 'GOLD' && (
+                              <div className="alert alert-warning small py-2">
+                                  Uses current <strong>999 Gold Rate</strong> to calculate weight.
+                              </div>
+                          )}
+                          <div className="mb-3">
+                              <label className="form-label">Amount</label>
+                              <input type="number" className="form-control form-control-lg"
+                                  value={chitInstallmentAmount} onChange={e => setChitInstallmentAmount(e.target.value)} />
+                          </div>
+                      </div>
+                      <div className="modal-footer">
+                          <button className="btn btn-secondary" onClick={() => setShowChitPayModal(false)}>Cancel</button>
+                          <button className="btn btn-success" onClick={handleChitPayment}>Confirm Payment</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- MODAL 3: REGULAR BILL PAYMENT --- */}
       {showPayModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">

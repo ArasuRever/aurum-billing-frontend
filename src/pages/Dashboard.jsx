@@ -12,7 +12,12 @@ function Dashboard() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showCalc, setShowCalc] = useState(false);
-    const [rates, setRates] = useState({ GOLD: 0, SILVER: 0 });
+    const [rates, setRates] = useState({ 
+        'GOLD': 0, 
+        'SILVER': 0, 
+        'GOLD 999': 0, 
+        'SILVER 999': 0 
+    });
 
     useEffect(() => {
         fetchDashboard();
@@ -20,10 +25,11 @@ function Dashboard() {
 
     const fetchDashboard = async () => {
         try {
-            // New Endpoint needed in api.js: getDashboard: () => axios.get(`${API_URL}/dashboard`)
             const res = await api.axiosInstance.get('/dashboard'); 
             setData(res.data);
-            setRates(res.data.rates);
+            if (res.data.rates) {
+                setRates(prev => ({ ...prev, ...res.data.rates }));
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -36,7 +42,7 @@ function Dashboard() {
         if (newRate && !isNaN(newRate)) {
             await api.updateDailyRate({ metal_type: type, rate: newRate });
             setRates(prev => ({ ...prev, [type]: newRate }));
-            alert("Rate Updated!");
+            // alert("Rate Updated!");
         }
     };
 
@@ -58,23 +64,49 @@ function Dashboard() {
     return (
         <div className="container-fluid pb-5">
             
-            {/* A. LIVE TICKER */}
+            {/* A. LIVE TICKER - UPDATED WITH 999 RATES */}
             <div className="card shadow-sm border-0 mb-4 bg-dark text-white">
-                <div className="card-body py-2 d-flex justify-content-between align-items-center">
-                    <div className="d-flex gap-4">
-                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('GOLD', rates.GOLD)}>
-                            <div className="bg-warning text-dark rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'35px', height:'35px'}}>Au</div>
+                <div className="card-body py-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div className="d-flex gap-4 flex-wrap">
+                        {/* STANDARD GOLD */}
+                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('GOLD', rates['GOLD'])}>
+                            <div className="bg-warning text-dark rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'40px', height:'40px'}}>Au</div>
                             <div>
-                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>GOLD RATE</small>
-                                <span className="fw-bold text-warning">₹{rates.GOLD}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.7rem'}}></i>
+                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>GOLD (BOARD)</small>
+                                <span className="fw-bold text-warning fs-5">₹{rates['GOLD']}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.6rem'}}></i>
                             </div>
                         </div>
-                        <div className="vr bg-secondary"></div>
-                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('SILVER', rates.SILVER)}>
-                            <div className="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'35px', height:'35px'}}>Ag</div>
+
+                        <div className="vr bg-secondary d-none d-md-block"></div>
+
+                        {/* STANDARD SILVER */}
+                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('SILVER', rates['SILVER'])}>
+                            <div className="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'40px', height:'40px'}}>Ag</div>
                             <div>
-                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>SILVER RATE</small>
-                                <span className="fw-bold">₹{rates.SILVER}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.7rem'}}></i>
+                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>SILVER (BOARD)</small>
+                                <span className="fw-bold fs-5">₹{rates['SILVER']}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.6rem'}}></i>
+                            </div>
+                        </div>
+
+                        <div className="vr bg-secondary d-none d-md-block"></div>
+
+                        {/* 999 GOLD BAR */}
+                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('GOLD 999', rates['GOLD 999'])}>
+                            <div className="border border-warning text-warning rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'40px', height:'40px'}}>99</div>
+                            <div>
+                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>GOLD 999 [BAR]</small>
+                                <span className="fw-bold text-light fs-5">₹{rates['GOLD 999']}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.6rem'}}></i>
+                            </div>
+                        </div>
+
+                        <div className="vr bg-secondary d-none d-md-block"></div>
+
+                        {/* 999 SILVER BAR */}
+                        <div className="d-flex align-items-center cursor-pointer" onClick={() => updateRate('SILVER 999', rates['SILVER 999'])}>
+                            <div className="border border-light text-light rounded-circle d-flex align-items-center justify-content-center fw-bold me-2" style={{width:'40px', height:'40px'}}>99</div>
+                            <div>
+                                <small className="d-block text-white-50" style={{fontSize:'0.7rem'}}>SILVER 999 [BAR]</small>
+                                <span className="fw-bold text-light fs-5">₹{rates['SILVER 999']}</span> <i className="bi bi-pencil-fill small text-white-50 ms-1" style={{fontSize:'0.6rem'}}></i>
                             </div>
                         </div>
                     </div>
@@ -193,7 +225,6 @@ function Dashboard() {
                                     <small className="text-muted">Revenue</small>
                                 </div>
                                 <div className="col-md-4">
-                                    {/* Mini Heatmap Visualization (Text Based for simplicity) */}
                                     <small className="d-block fw-bold text-muted mb-2">Busy Hours</small>
                                     <div className="d-flex align-items-end" style={{height:'40px', gap:'2px'}}>
                                         {[9,10,11,12,13,14,15,16,17,18,19,20].map(h => {

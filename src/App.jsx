@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import { BusinessProvider } from './context/BusinessContext'; // IMPORT THIS
+import { BusinessProvider } from './context/BusinessContext';
 
 // Page Imports
 import VendorManager from './pages/VendorManager';
@@ -22,16 +22,16 @@ import BulkStockEntry from './pages/BulkStockEntry';
 import ExternalGST from './pages/ExternalGST';
 import Dashboard from './pages/Dashboard';
 import StockAudit from './pages/StockAudit';
+import ChitManager from './pages/ChitManager'; // NEW
 
 function App() {
   return (
-    <BusinessProvider> {/* WRAP HERE */}
+    <BusinessProvider>
       <Router>
         <div className="d-flex flex-column min-vh-100 bg-light">
           <Navbar />
           <div className="container-fluid px-4">
             <Routes>
-              {/* CHANGE HOME TO NEW DASHBOARD */}
               <Route path="/" element={<Dashboard />} />
               
               <Route path="/billing" element={<Billing />} />
@@ -44,6 +44,7 @@ function App() {
               <Route path="/add-stock" element={<BulkStockEntry />} />
               <Route path="/customers" element={<CustomerManager />} />
               <Route path="/customers/:phone" element={<CustomerDetails />} />
+              <Route path="/chits" element={<ChitManager />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/bill-history" element={<BillHistory />} />
               <Route path="/billing/return" element={<SalesReturn />} />
