@@ -14,6 +14,7 @@ function BulkStockEntry() {
   const navigate = useNavigate();
   const [vendors, setVendors] = useState([]);
   const [masterItems, setMasterItems] = useState([]);
+  const [productTypes, setProductTypes] = useState([]); // NEW: To populate Metal Group dropdown
   
   // Header State
   const [batchDetails, setBatchDetails] = useState({
@@ -24,15 +25,26 @@ function BulkStockEntry() {
 
   // Grid State
   const [rows, setRows] = useState([]);
-  const [purityMode, setPurityMode] = useState('TOUCH'); // 'TOUCH' or 'WASTAGE'
+  const [purityMode, setPurityMode] = useState('TOUCH'); 
 
   // Load Initial Data
   useEffect(() => {
     const init = async () => {
         try {
-            const [vRes, mRes] = await Promise.all([api.searchVendor(''), api.getMasterItems()]);
+            const [vRes, mRes, tRes] = await Promise.all([
+                api.searchVendor(''), 
+                api.getMasterItems(),
+                api.getProductTypes() // Fetch available metals
+            ]);
             setVendors(vRes.data);
             setMasterItems(mRes.data);
+            setProductTypes(tRes.data || []);
+            
+            // Set default metal if available
+            if(tRes.data && tRes.data.length > 0) {
+                setBatchDetails(prev => ({ ...prev, metal_type: tRes.data[0].name }));
+            }
+
             // Add initial empty row
             handleAddRow();
         } catch(e) { console.error(e); }
@@ -47,7 +59,7 @@ function BulkStockEntry() {
         item_name: '',
         stock_type: 'SINGLE',
         gross_weight: '',
-        wastage_percent: '', // Acts as Touch% or Wastage% based on mode
+        wastage_percent: '', 
         making_charges: '',
         huid: '',
         item_image: null,
@@ -62,7 +74,7 @@ function BulkStockEntry() {
   const calculatePure = (gross, val, mode) => {
       const g = parseFloat(gross) || 0;
       const v = parseFloat(val) || 0;
-      if(mode === 'TOUCH') return (g * (v / 100)).toFixed(3);
+      // Simple Touch Calculation
       return (g * (v / 100)).toFixed(3);
   };
 
@@ -83,11 +95,10 @@ function BulkStockEntry() {
               }
           }
 
-          // Recalc Pure
+          // Recalc Pure & MC
           if (field === 'gross_weight' || field === 'wastage_percent') {
               updated.calc_pure = calculatePure(updated.gross_weight, updated.wastage_percent, purityMode);
               
-              // Recalc MC if Per Gram
               if (field === 'gross_weight') {
                    const match = masterItems.find(m => m.item_name === updated.item_name);
                    if (match && match.mc_type === 'PER_GRAM') {
@@ -104,17 +115,29 @@ function BulkStockEntry() {
       setRows(rows.map(r => r.id === id ? { ...r, item_image: file } : r));
   };
 
-  // --- VENDOR CHANGE HANDLER ---
+  // --- VENDOR CHANGE HANDLER (FIXED) ---
   const handleVendorChange = (e) => {
       const val = e.target.value;
       const selectedVendor = vendors.find(v => v.id.toString() === val);
       
-      setBatchDetails(prev => ({
-          ...prev,
-          vendor_id: val,
-          // Auto-switch metal type if vendor has a specific metal preference
-          metal_type: selectedVendor?.metal_type ? selectedVendor.metal_type : prev.metal_type
-      }));
+      setBatchDetails(prev => {
+          let newMetal = prev.metal_type;
+          
+          // Check vendor_type instead of metal_type
+          // If vendor is strictly one type (e.g., 'GOLD' or 'SILVER'), auto-select it.
+          if (selectedVendor && selectedVendor.vendor_type && selectedVendor.vendor_type !== 'BOTH') {
+              // Try to find a matching product type (case-insensitive)
+              const match = productTypes.find(t => t.name.toUpperCase() === selectedVendor.vendor_type.toUpperCase());
+              if(match) newMetal = match.name;
+              else newMetal = selectedVendor.vendor_type; // Fallback
+          }
+          
+          return {
+              ...prev,
+              vendor_id: val,
+              metal_type: newMetal
+          };
+      });
   };
 
   // --- SUBMIT ---
@@ -126,7 +149,6 @@ function BulkStockEntry() {
       if(!window.confirm(`Add ${validRows.length} items to inventory?`)) return;
 
       try {
-          // Process Images
           const processedItems = await Promise.all(validRows.map(async (r) => {
               let b64 = null;
               if (r.item_image) b64 = await toBase64(r.item_image);
@@ -152,14 +174,12 @@ function BulkStockEntry() {
       }
   };
 
-  // Totals
   const totalGross = rows.reduce((sum, r) => sum + (parseFloat(r.gross_weight)||0), 0).toFixed(3);
   const totalPure = rows.reduce((sum, r) => sum + (parseFloat(r.calc_pure)||0), 0).toFixed(3);
 
   return (
     <div className="container-fluid mt-4 pb-5">
       
-      {/* HEADER */}
       <div className="d-flex justify-content-between align-items-center mb-4">
           <div>
             <h2 className="fw-bold text-primary mb-0"><i className="bi bi-box-seam me-2"></i>Bulk Stock Entry</h2>
@@ -183,15 +203,20 @@ function BulkStockEntry() {
                           <option value="">-- Select Source --</option>
                           <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
                           <optgroup label="Vendors">
-                              {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name} ({v.metal_type || 'Mix'})</option>)}
+                              {/* FIX: Use vendor_type instead of metal_type */}
+                              {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name} ({v.vendor_type || 'Mix'})</option>)}
                           </optgroup>
                       </select>
                   </div>
                   <div className="col-md-2">
                       <label className="form-label small fw-bold text-muted">Metal Group</label>
+                      {/* FIX: Map over productTypes instead of hardcoded Gold/Silver */}
                       <select className="form-select fw-bold" value={batchDetails.metal_type} onChange={e => setBatchDetails({...batchDetails, metal_type: e.target.value})}>
-                          <option value="GOLD">GOLD</option>
-                          <option value="SILVER">SILVER</option>
+                          {productTypes.map(t => (
+                              <option key={t.id} value={t.name}>{t.name}</option>
+                          ))}
+                          {/* Fallback if list is empty */}
+                          {productTypes.length === 0 && <option value="GOLD">GOLD</option>}
                       </select>
                   </div>
                   <div className="col-md-3">

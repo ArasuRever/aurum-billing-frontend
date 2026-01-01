@@ -14,26 +14,31 @@ function LedgerDashboard() {
   const [ledgerData, setLedgerData] = useState([]);
   const [dayStats, setDayStats] = useState({ income: 0, expense: 0 });
   const [assets, setAssets] = useState({ cash_balance: 0, bank_balance: 0 });
-  const [oldMetalStats, setOldMetalStats] = useState(null); // RESTORED
+  const [oldMetalStats, setOldMetalStats] = useState(null); 
   
-  // New Suspense Logic
+  // Suspense
   const [pendingExpenses, setPendingExpenses] = useState([]); 
   const [shops, setShops] = useState([]); 
 
-  // Refinery State (RESTORED)
+  // Refinery Modal State
   const [showRefineryModal, setShowRefineryModal] = useState(false);
   const [refineryTab, setRefineryTab] = useState('SEND');
+  
+  // Refinery Data
   const [pendingScrap, setPendingScrap] = useState([]);
   const [refineryBatches, setRefineryBatches] = useState([]);
   const [vendors, setVendors] = useState([]);
+  
+  // Forms
   const [sendForm, setSendForm] = useState({ metal: 'GOLD', selectedIds: [], manualWeight: '', totalNetWeight: '' });
   const [receiveForm, setReceiveForm] = useState({ batchId: '', weight: '', touch: '', reportNo: '', file: null });
   const [useForm, setUseForm] = useState({ batchId: '', type: 'PAY_VENDOR', vendorId: '', weight: '' });
 
-  // Transaction Modals
+  // Transaction Modal
   const [showTxnModal, setShowTxnModal] = useState(false);
   const [txnForm, setTxnForm] = useState({ type: 'INCOME', amount: '', description: '', mode: 'CASH', is_unrecorded: false });
   
+  // Allocate Modal
   const [showAllocateModal, setShowAllocateModal] = useState(false);
   const [allocateData, setAllocateData] = useState({ expense_id: null, shop_id: '' });
 
@@ -43,7 +48,7 @@ function LedgerDashboard() {
     loadShops();
   }, [selectedDate]);
 
-  // Refinery Net Weight Auto-Calc
+  // Auto-calculate Total Net Weight when selection changes
   useEffect(() => {
     if (showRefineryModal && pendingScrap.length > 0) {
         const selectedItems = pendingScrap.filter(i => sendForm.selectedIds.includes(i.id));
@@ -63,8 +68,6 @@ function LedgerDashboard() {
         }
         const statsRes = await api.getLedgerStats();
         if (statsRes.data && statsRes.data.assets) setAssets(statsRes.data.assets);
-        
-        // RESTORED OLD METAL FETCH
         const oldStatsRes = await api.getOldMetalStats();
         setOldMetalStats(oldStatsRes.data);
     } catch (err) { console.error("Load Error:", err); } finally { setLoading(false); }
@@ -92,7 +95,54 @@ function LedgerDashboard() {
       } catch (err) { console.error(err); }
   };
 
-  // --- HANDLERS (Merged) ---
+  // --- HANDLERS ---
+  const handleSendScrap = async () => {
+      if (sendForm.selectedIds.length === 0 && (!sendForm.manualWeight || parseFloat(sendForm.manualWeight) <= 0)) {
+          return alert("Please select items or enter manual weight.");
+      }
+      try {
+          await api.axiosInstance.post('/refinery/create-batch', {
+              metal_type: sendForm.metal,
+              item_ids: sendForm.selectedIds, // FIXED: Matches Backend key
+              manual_weight: sendForm.manualWeight,
+              net_weight: sendForm.totalNetWeight 
+          });
+          alert("Batch Created & Sent!");
+          setSendForm({ metal: 'GOLD', selectedIds: [], manualWeight: '', totalNetWeight: '' });
+          loadRefineryData();
+          loadDashboard(); 
+      } catch(err) { alert("Error: " + (err.response?.data?.error || err.message)); }
+  };
+
+  const handleReceiveRefined = async () => {
+      const formData = new FormData();
+      formData.append('batch_id', receiveForm.batchId);
+      formData.append('refined_weight', receiveForm.weight);
+      formData.append('touch_percent', receiveForm.touch);
+      formData.append('report_no', receiveForm.reportNo);
+      if(receiveForm.file) formData.append('report_image', receiveForm.file);
+
+      try {
+          await api.axiosInstance.post('/refinery/receive-refined', formData);
+          alert("Refined Stock Updated!");
+          loadRefineryData();
+      } catch(err) { alert(err.message); }
+  };
+
+  const handleUseStock = async () => {
+      try {
+          await api.axiosInstance.post('/refinery/use-stock', {
+              batch_id: useForm.batchId,
+              usage_type: useForm.type,
+              vendor_id: useForm.vendorId,
+              weight_to_use: useForm.weight
+          });
+          alert("Transaction Recorded!");
+          loadRefineryData();
+          loadDashboard();
+      } catch(err) { alert(err.message); }
+  };
+
   const handleManualTxn = async () => {
       if(!txnForm.amount || !txnForm.description) return alert("Fill all fields");
       try {
@@ -104,10 +154,10 @@ function LedgerDashboard() {
                    amount: txnForm.amount, 
                    category: 'GENERAL', 
                    payment_mode: txnForm.mode,
-                   is_unrecorded: txnForm.is_unrecorded // Passing flag
+                   is_unrecorded: txnForm.is_unrecorded 
                });
           }
-          alert("Saved!");
+          alert("Saved");
           setShowTxnModal(false);
           setTxnForm({ type: 'INCOME', amount: '', description: '', mode: 'CASH', is_unrecorded: false });
           loadDashboard();
@@ -123,50 +173,6 @@ function LedgerDashboard() {
           setShowAllocateModal(false);
           loadPending();
           loadDashboard(); 
-      } catch(err) { alert(err.message); }
-  };
-
-  // Refinery Handlers (RESTORED)
-  const handleSendScrap = async () => {
-      try {
-          await api.axiosInstance.post('/refinery/create-batch', {
-              metal_type: sendForm.metal,
-              selected_item_ids: sendForm.selectedIds,
-              manual_weight: sendForm.manualWeight,
-              net_weight: sendForm.totalNetWeight
-          });
-          alert("Batch Created!");
-          setSendForm({ metal: 'GOLD', selectedIds: [], manualWeight: '', totalNetWeight: '' });
-          loadRefineryData();
-          loadDashboard(); 
-      } catch(err) { alert(err.message); }
-  };
-
-  const handleReceiveRefined = async () => {
-      const formData = new FormData();
-      formData.append('batch_id', receiveForm.batchId);
-      formData.append('refined_weight', receiveForm.weight);
-      formData.append('touch_percent', receiveForm.touch);
-      formData.append('report_no', receiveForm.reportNo);
-      if(receiveForm.file) formData.append('report_image', receiveForm.file);
-      try {
-          await api.axiosInstance.post('/refinery/receive-refined', formData);
-          alert("Updated!");
-          loadRefineryData();
-      } catch(err) { alert(err.message); }
-  };
-
-  const handleUseStock = async () => {
-      try {
-          await api.axiosInstance.post('/refinery/use-stock', {
-              batch_id: useForm.batchId,
-              usage_type: useForm.type,
-              vendor_id: useForm.vendorId,
-              weight_to_use: useForm.weight
-          });
-          alert("Recorded!");
-          loadRefineryData();
-          loadDashboard();
       } catch(err) { alert(err.message); }
   };
 
@@ -200,21 +206,48 @@ function LedgerDashboard() {
             <div className="text-muted small">Track Income, Expenses, Suspense & Refinery</div>
         </div>
         <div className="d-flex gap-2">
-            <div><label className="form-label small fw-bold mb-0">Date</label><input type="date" className="form-control" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} /></div>
+            <div>
+                <label className="form-label small fw-bold mb-0">Date Selection</label>
+                <input type="date" className="form-control" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+            </div>
             <div className="align-self-end">
-                <button className="btn btn-warning me-2 fw-bold text-dark" onClick={() => { setShowRefineryModal(true); loadRefineryData(); }}><i className="bi bi-fire me-1"></i> Refinery</button>
-                <button className="btn btn-dark fw-bold" onClick={() => setShowTxnModal(true)}><i className="bi bi-plus-lg me-1"></i> Entry</button>
+                <button className="btn btn-warning me-2 fw-bold text-dark" onClick={() => { setShowRefineryModal(true); loadRefineryData(); }}>
+                    <i className="bi bi-fire me-1"></i> Refinery
+                </button>
+                <button className="btn btn-dark fw-bold" onClick={() => setShowTxnModal(true)}>
+                    <i className="bi bi-plus-lg me-1"></i> Entry
+                </button>
             </div>
         </div>
       </div>
 
-      {/* ROW 1: CASH ASSETS & DAY STATS */}
+      {/* ASSETS SUMMARY */}
       <div className="row g-3 mb-4">
           <div className="col-md-3">
               <div className="card bg-success text-white shadow-sm h-100">
                   <div className="card-body">
                       <small className="opacity-75 fw-bold">SYSTEM CASH</small>
                       <h3 className="fw-bold mb-0">{formatMoney(assets.cash_balance)}</h3>
+                  </div>
+              </div>
+          </div>
+          <div className="col-md-3">
+              {/* WARNING CARD FOR UNRECORDED */}
+              <div className={`card shadow-sm h-100 ${pendingTotal > 0 ? 'bg-warning text-dark border-warning' : 'bg-light text-muted'}`}>
+                  <div className="card-body">
+                      <div className="d-flex justify-content-between">
+                          <small className="opacity-75 fw-bold">UNRECORDED EXP</small>
+                          {pendingTotal > 0 && <i className="bi bi-exclamation-circle-fill text-danger"></i>}
+                      </div>
+                      <h3 className="fw-bold mb-0">{formatMoney(pendingTotal)}</h3>
+                      {pendingTotal > 0 && (
+                          <div className="mt-2 pt-2 border-top border-dark border-opacity-25">
+                              <small className="fw-bold d-block">Effective Cash:</small>
+                              <span className={`fw-bold fs-5 ${effectiveCash < 0 ? 'text-danger' : 'text-success'}`}>
+                                  {formatMoney(effectiveCash)}
+                              </span>
+                          </div>
+                      )}
                   </div>
               </div>
           </div>
@@ -226,46 +259,50 @@ function LedgerDashboard() {
                   </div>
               </div>
           </div>
-          <div className="col-md-6">
+          <div className="col-md-3">
               <div className="card border-0 shadow-sm h-100">
                   <div className="card-body d-flex justify-content-around align-items-center">
-                      <div className="text-center"><small className="text-muted fw-bold">INCOME</small><h5 className="text-success fw-bold">+{formatMoney(dayStats.income)}</h5></div>
+                      <div className="text-center">
+                          <small className="text-muted fw-bold">INCOME</small>
+                          <h5 className="text-success fw-bold">+{formatMoney(dayStats.income)}</h5>
+                      </div>
                       <div className="vr"></div>
-                      <div className="text-center"><small className="text-muted fw-bold">EXPENSE</small><h5 className="text-danger fw-bold">-{formatMoney(dayStats.expense)}</h5></div>
+                      <div className="text-center">
+                          <small className="text-muted fw-bold">EXPENSE</small>
+                          <h5 className="text-danger fw-bold">-{formatMoney(dayStats.expense)}</h5>
+                      </div>
                   </div>
               </div>
           </div>
       </div>
 
-      {/* ROW 2: OLD METAL STATS + SUSPENSE (UNRECORDED) */}
+      {/* ROW 2: OLD METAL STATS */}
       <div className="row g-3 mb-4">
-        {/* OLD GOLD CARD */}
-        <div className="col-md-4">
-            <div className="card bg-warning bg-opacity-10 border-warning text-dark shadow-sm h-100 cursor-pointer" onClick={() => navigate('/old-metal')}>
-                <div className="card-body">
-                    <h6 className="fw-bold text-warning text-opacity-75">OLD GOLD (Net)</h6>
-                    <div className="fw-bold fs-4">{parseFloat(oldMetalStats?.gold_total_net || 0).toFixed(3)} g</div>
-                    <small className="text-muted">Gross: {parseFloat(oldMetalStats?.gold_total_gross || 0).toFixed(3)}g</small>
+        <div className="col-md-6">
+            <div className="card bg-warning bg-opacity-10 border-warning text-dark shadow-sm cursor-pointer hover-shadow" onClick={() => navigate('/old-metal')}>
+                <div className="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 className="fw-bold mb-0 text-warning text-opacity-75">OLD GOLD</h5>
+                        <small className="text-muted">Purchased + Exchanged</small>
+                    </div>
+                    <div className="text-end">
+                        <div className="fw-bold fs-5">{parseFloat(oldMetalStats?.gold_total_gross || 0).toFixed(3)} g <span className="small text-muted">Gross</span></div>
+                        <div className="fw-bold fs-5 text-success">{parseFloat(oldMetalStats?.gold_total_net || 0).toFixed(3)} g <span className="small text-muted">Net</span></div>
+                    </div>
                 </div>
             </div>
         </div>
-        {/* OLD SILVER CARD */}
-        <div className="col-md-4">
-            <div className="card bg-secondary bg-opacity-10 border-secondary text-dark shadow-sm h-100 cursor-pointer" onClick={() => navigate('/old-metal')}>
-                <div className="card-body">
-                    <h6 className="fw-bold text-secondary">OLD SILVER (Net)</h6>
-                    <div className="fw-bold fs-4">{parseFloat(oldMetalStats?.silver_total_net || 0).toFixed(3)} g</div>
-                    <small className="text-muted">Gross: {parseFloat(oldMetalStats?.silver_total_gross || 0).toFixed(3)}g</small>
-                </div>
-            </div>
-        </div>
-        {/* SUSPENSE / UNRECORDED EXPENSE CARD (NEW) */}
-        <div className="col-md-4">
-            <div className={`card shadow-sm h-100 ${pendingTotal > 0 ? 'bg-danger bg-opacity-10 border-danger' : 'bg-light border-secondary'}`}>
-                <div className="card-body">
-                    <h6 className="fw-bold text-danger">UNRECORDED EXPENSES</h6>
-                    <div className="fw-bold fs-4 text-danger">{formatMoney(pendingTotal)}</div>
-                    {pendingTotal > 0 && <small className="text-dark fw-bold">Effective Cash: {formatMoney(effectiveCash)}</small>}
+        <div className="col-md-6">
+            <div className="card bg-secondary bg-opacity-10 border-secondary text-dark shadow-sm cursor-pointer hover-shadow" onClick={() => navigate('/old-metal')}>
+                <div className="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 className="fw-bold mb-0 text-secondary">OLD SILVER</h5>
+                        <small className="text-muted">Purchased + Exchanged</small>
+                    </div>
+                    <div className="text-end">
+                         <div className="fw-bold fs-5">{parseFloat(oldMetalStats?.silver_total_gross || 0).toFixed(3)} g <span className="small text-muted">Gross</span></div>
+                         <div className="fw-bold fs-5 text-success">{parseFloat(oldMetalStats?.silver_total_net || 0).toFixed(3)} g <span className="small text-muted">Net</span></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -273,10 +310,10 @@ function LedgerDashboard() {
 
       {/* PENDING EXPENSES LIST (If Any) */}
       {pendingExpenses.length > 0 && (
-          <div className="card border-danger mb-4 shadow-sm">
-              <div className="card-header bg-danger bg-opacity-10 fw-bold text-danger d-flex justify-content-between align-items-center">
-                  <span><i className="bi bi-exclamation-triangle me-2"></i>Pending Allocation</span>
-                  <span className="badge bg-danger">{pendingExpenses.length} Items</span>
+          <div className="card border-warning mb-4 shadow-sm">
+              <div className="card-header bg-warning bg-opacity-25 fw-bold text-dark d-flex justify-content-between align-items-center">
+                  <span><i className="bi bi-hourglass-split me-2"></i>Pending / Unrecorded Expenses</span>
+                  <span className="badge bg-dark">{pendingExpenses.length} Items</span>
               </div>
               <div className="table-responsive">
                   <table className="table table-hover mb-0 align-middle">
@@ -288,9 +325,9 @@ function LedgerDashboard() {
                                   <td>{exp.description}</td>
                                   <td className="fw-bold text-danger">₹{parseFloat(exp.amount).toLocaleString()}</td>
                                   <td className="text-end">
-                                      <button className="btn btn-sm btn-outline-danger fw-bold" 
+                                      <button className="btn btn-sm btn-outline-primary fw-bold" 
                                           onClick={() => { setAllocateData({ expense_id: exp.id, shop_id: '' }); setShowAllocateModal(true); }}>
-                                          Allocate to B2B Shop
+                                          Allocate to Shop <i className="bi bi-arrow-right ms-1"></i>
                                       </button>
                                   </td>
                               </tr>
@@ -301,23 +338,26 @@ function LedgerDashboard() {
           </div>
       )}
 
-      {/* MAIN HISTORY TABLE */}
-      <div className="card shadow-sm border-0">
-          <div className="card-header bg-light border-0">
+      {/* FILTERS */}
+      <div className="card shadow-sm border-0 mb-3">
+          <div className="card-body p-2">
               <div className="nav nav-pills nav-fill">
                   {['ALL', 'GOLD', 'SILVER', 'CASH', 'BANK', 'REFINERY'].map(tab => (
-                      <button key={tab} className={`nav-link small py-1 ${activeTab === tab ? 'active bg-dark' : 'text-muted'}`} onClick={() => setActiveTab(tab)}>{tab}</button>
+                      <button key={tab} className={`nav-link ${activeTab === tab ? 'active bg-dark' : 'text-muted'}`} onClick={() => setActiveTab(tab)}>{tab}</button>
                   ))}
               </div>
           </div>
+      </div>
+
+      <div className="card shadow-sm border-0">
           <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                   <thead className="table-light text-secondary small">
                       <tr><th>TIME</th><th>TYPE</th><th>DESCRIPTION</th><th>MODE</th><th className="text-end text-warning">GOLD</th><th className="text-end text-secondary">SILVER</th><th className="text-end">AMOUNT</th></tr>
                   </thead>
                   <tbody>
-                      {loading ? <tr><td colSpan="7" className="text-center py-5">Loading...</td></tr> : 
-                       filteredTxns.length === 0 ? <tr><td colSpan="7" className="text-center py-5 text-muted">No transactions found.</td></tr> :
+                      {loading ? <tr><td colSpan="7" className="text-center py-5">Loading Data...</td></tr> : 
+                       filteredTxns.length === 0 ? <tr><td colSpan="7" className="text-center py-5 text-muted">No transactions for this date.</td></tr> :
                        filteredTxns.map((txn, i) => (
                           <tr key={i} className={txn.direction === 'IN' ? 'bg-success bg-opacity-10' : ''}>
                               <td className="small text-muted">{new Date(txn.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
@@ -334,9 +374,7 @@ function LedgerDashboard() {
           </div>
       </div>
 
-      {/* --- MODALS --- */}
-
-      {/* 1. TRANSACTION MODAL (Income / Expense / Unrecorded) */}
+      {/* TRANSACTION MODAL */}
       {showTxnModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog">
@@ -349,9 +387,7 @@ function LedgerDashboard() {
                          </div>
                          <input className="form-control mb-2" placeholder="Description" value={txnForm.description} onChange={e => setTxnForm({...txnForm, description: e.target.value})} />
                          <input type="number" className="form-control mb-2" placeholder="Amount" value={txnForm.amount} onChange={e => setTxnForm({...txnForm, amount: e.target.value})} />
-                         <select className="form-select mb-3" value={txnForm.mode} onChange={e => setTxnForm({...txnForm, mode: e.target.value})} disabled={txnForm.is_unrecorded}>
-                             <option value="CASH">CASH</option><option value="ONLINE">ONLINE / BANK</option>
-                         </select>
+                         <select className="form-select mb-3" value={txnForm.mode} onChange={e => setTxnForm({...txnForm, mode: e.target.value})}><option value="CASH">CASH</option><option value="ONLINE">ONLINE / BANK</option></select>
                          {txnForm.type === 'EXPENSE' && (
                              <div className="form-check bg-danger bg-opacity-10 p-3 rounded border border-danger">
                                  <input className="form-check-input" type="checkbox" id="unrec" checked={txnForm.is_unrecorded} onChange={e => setTxnForm({...txnForm, is_unrecorded: e.target.checked})} />
@@ -360,32 +396,32 @@ function LedgerDashboard() {
                              </div>
                          )}
                     </div>
-                    <div className="modal-footer"><button className="btn btn-primary w-100 fw-bold" onClick={handleManualTxn}>SAVE ENTRY</button></div>
+                    <div className="modal-footer"><button className="btn btn-primary w-100" onClick={handleManualTxn}>SAVE ENTRY</button></div>
                 </div>
             </div>
         </div>
       )}
 
-      {/* 2. ALLOCATE MODAL */}
+      {/* ALLOCATE MODAL */}
       {showAllocateModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
                   <div className="modal-content">
-                      <div className="modal-header bg-danger text-white"><h5 className="modal-title">Allocate to Shop Debt</h5><button className="btn-close btn-close-white" onClick={() => setShowAllocateModal(false)}></button></div>
+                      <div className="modal-header bg-primary text-white"><h5 className="modal-title">Allocate Expense</h5><button className="btn-close btn-close-white" onClick={() => setShowAllocateModal(false)}></button></div>
                       <div className="modal-body">
-                          <p className="small text-muted">Who paid for this expense? (Select B2B Shop/Lender)</p>
+                          <p className="text-muted">Select the Shop/Lender who paid this.</p>
                           <select className="form-select" value={allocateData.shop_id} onChange={e => setAllocateData({...allocateData, shop_id: e.target.value})}>
-                              <option value="">-- Select Shop --</option>
+                              <option value="">-- Choose Shop --</option>
                               {shops.map(s => <option key={s.id} value={s.id}>{s.shop_name}</option>)}
                           </select>
                       </div>
-                      <div className="modal-footer"><button className="btn btn-danger w-100" onClick={handleAllocateSubmit}>CONFIRM ALLOCATION</button></div>
+                      <div className="modal-footer"><button className="btn btn-success w-100" onClick={handleAllocateSubmit}>Confirm</button></div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* 3. REFINERY MODAL (RESTORED) */}
+      {/* REFINERY MODAL */}
       {showRefineryModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -401,7 +437,6 @@ function LedgerDashboard() {
                             <li className="nav-item"><button className={`nav-link ${refineryTab === 'USE' && 'active'}`} onClick={() => setRefineryTab('USE')}>3. Use Pure Gold</button></li>
                         </ul>
 
-                        {/* TAB 1: SEND SCRAP */}
                         {refineryTab === 'SEND' && (
                             <div>
                                 <div className="d-flex gap-2 mb-3">
@@ -409,6 +444,7 @@ function LedgerDashboard() {
                                         <option value="GOLD">GOLD</option>
                                         <option value="SILVER">SILVER</option>
                                     </select>
+                                    <div className="flex-grow-1"></div>
                                 </div>
                                 <div className="table-responsive border mb-3" style={{maxHeight:'200px'}}>
                                     <table className="table table-sm table-hover mb-0">

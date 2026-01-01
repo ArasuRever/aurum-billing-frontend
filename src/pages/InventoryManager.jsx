@@ -9,9 +9,9 @@ function InventoryManager() {
   const [items, setItems] = useState([]); // Fresh Items
   const [oldItems, setOldItems] = useState([]); // Old Metal Items
   
-  const [filterMode, setFilterMode] = useState(''); // Source Filter (Vendor ID or 'OWN')
-  const [filterMetal, setFilterMetal] = useState(null); // Metal Type Filter (Clicked Card)
-  const [searchQuery, setSearchQuery] = useState(''); // NEW: Live Search State
+  const [filterMode, setFilterMode] = useState(''); // Source Filter
+  const [filterMetal, setFilterMetal] = useState(null); // Card Click Filter
+  const [searchQuery, setSearchQuery] = useState(''); // Live Search
   
   const [vendors, setVendors] = useState([]);
   const [productTypes, setProductTypes] = useState([]); 
@@ -52,52 +52,50 @@ function InventoryManager() {
       } catch(err) { console.error(err); }
   };
 
-  // --- FILTERING LOGIC ---
+  // --- MASTER FILTERING LOGIC ---
+  const getFilteredList = () => {
+      const baseList = activeTab === 'FRESH' ? items : oldItems;
+      
+      return baseList.filter(i => {
+          // 1. Source Filter
+          if (filterMode !== '') {
+              if (filterMode === 'OWN' && i.source_type !== 'OWN') return false;
+              if (filterMode !== 'OWN' && i.vendor_id !== parseInt(filterMode)) return false;
+          }
 
-  // 1. Filter by Source (Vendor/Own)
-  const getSourceFilteredList = () => {
-      const list = activeTab === 'FRESH' ? items : oldItems;
-      return list.filter(i => {
-          if (filterMode === '') return true; 
-          if (filterMode === 'OWN') return i.source_type === 'OWN'; 
-          return i.vendor_id === parseInt(filterMode);
+          // 2. Live Search
+          if (searchQuery) {
+              const q = searchQuery.toLowerCase();
+              const match = 
+                  (i.item_name && i.item_name.toLowerCase().includes(q)) ||
+                  (i.barcode && i.barcode.toLowerCase().includes(q)) ||
+                  (i.voucher_no && i.voucher_no.toLowerCase().includes(q)) ||
+                  (i.huid && i.huid.toLowerCase().includes(q));
+              if (!match) return false;
+          }
+
+          return true;
       });
   };
 
-  // 2. Filter by Search Query (NEW)
-  const getSearchFilteredList = () => {
-      const sourceList = getSourceFilteredList();
-      if (!searchQuery) return sourceList;
-      
-      const lowerQuery = searchQuery.toLowerCase();
-      return sourceList.filter(item => 
-          (item.item_name && item.item_name.toLowerCase().includes(lowerQuery)) ||
-          (item.barcode && item.barcode.toLowerCase().includes(lowerQuery)) ||
-          (item.voucher_no && item.voucher_no.toLowerCase().includes(lowerQuery)) ||
-          (item.huid && item.huid.toLowerCase().includes(lowerQuery))
-      );
-  };
+  const searchFilteredItems = getFilteredList();
 
-  const searchFilteredItems = getSearchFilteredList();
-
-  // 3. Filter by Metal Card Click (Visual Filter)
+  // 3. Apply Metal Card Filter (Visual)
   const displayItems = searchFilteredItems.filter(i => 
       !filterMetal || i.metal_type === filterMetal
   );
 
-  // --- DYNAMIC TOTALS (Based on Search Results) ---
+  // --- DYNAMIC TOTALS CALCULATION (Based on Search Results) ---
   const getTotals = () => {
-      // Calculates totals for the cards based on what is currently found via search/source
+      // Use the items found by search/source to calculate totals for the cards
       const typeSet = new Set([...productTypes.map(t=>t.name), ...searchFilteredItems.map(i=>i.metal_type)]);
       const uniqueTypes = Array.from(typeSet);
 
       return uniqueTypes.map(type => {
           const matchingItems = searchFilteredItems.filter(i => i.metal_type === type);
-          
           const totalWeight = matchingItems
               .reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0)
               .toFixed(3);
-          
           const count = matchingItems.length;
           
           const setting = productTypes.find(t => t.name === type);
@@ -112,9 +110,9 @@ function InventoryManager() {
 
   const totals = getTotals();
 
-  // Calculate Global Search Totals for Summary Line
-  const totalSearchCount = searchFilteredItems.length;
-  const totalSearchWeight = searchFilteredItems.reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0).toFixed(3);
+  // Search Summary Stats
+  const searchCount = searchFilteredItems.length;
+  const searchWeight = searchFilteredItems.reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0).toFixed(3);
 
   const handleCardClick = (type) => {
       setFilterMetal(prev => prev === type ? null : type);
@@ -214,7 +212,7 @@ function InventoryManager() {
           </div>
           
           <div className="d-flex gap-2 align-items-center">
-              {/* SEARCH BAR (NEW) */}
+              {/* LIVE SEARCH BAR */}
               <div className="input-group" style={{maxWidth: '250px'}}>
                   <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
                   <input 
@@ -246,15 +244,15 @@ function InventoryManager() {
           </div>
       </div>
 
-      {/* SEARCH SUMMARY (Shows Total Count & Weight for current search) */}
+      {/* SEARCH STATS SUMMARY */}
       {searchQuery && (
           <div className="alert alert-info py-2 mb-4 d-flex justify-content-between align-items-center">
-              <span><i className="bi bi-info-circle-fill me-2"></i>Search Results for "<strong>{searchQuery}</strong>"</span>
-              <strong>Found: {totalSearchCount} items | Total Weight: {totalSearchWeight} g</strong>
+              <span><i className="bi bi-search me-2"></i>Results for "<strong>{searchQuery}</strong>"</span>
+              <strong>Found: {searchCount} items | Total Weight: {searchWeight} g</strong>
           </div>
       )}
 
-      {/* STATS CARDS (Updated with Counts & Live Totals) */}
+      {/* CLICKABLE STATS CARDS */}
       <div className="row g-3 mb-4">
         {totals.map(t => {
             const isActive = filterMetal === t.type;
@@ -356,6 +354,7 @@ function InventoryManager() {
         </div>
       </div>
 
+      {/* Add Stock Modal - Unchanged but included for completeness */}
       {showAddModal && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog modal-lg">
