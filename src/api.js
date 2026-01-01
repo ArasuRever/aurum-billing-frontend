@@ -3,27 +3,34 @@ import axios from 'axios';
 const API_URL = 'http://localhost:5000/api';
 const axiosInstance = axios.create({ baseURL: API_URL });
 
-// Interceptor to attach token to every request
+// Auth Interceptor
 axiosInstance.interceptors.request.use((config) => {
     const token = localStorage.getItem('authToken');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 }, (error) => Promise.reject(error));
 
 export const api = {
   axiosInstance,
 
-  // --- AUTH & USER MANAGEMENT (Updated) ---
+  // --- AUTH & USERS ---
   getLoginConfig: () => axiosInstance.get(`/auth/login-config`),
   login: (creds) => axiosInstance.post(`/auth/login`, creds),
   setupAdmin: (creds) => axiosInstance.post(`/auth/setup`, creds),
-  
   getUsers: () => axiosInstance.get(`/auth/users`),
   addUser: (data) => axiosInstance.post(`/auth/users/add`, data),
   deleteUser: (id) => axiosInstance.delete(`/auth/users/${id}`),
   updateUser: (id, data) => axiosInstance.put(`/auth/users/${id}`, data),
+
+  // --- BACKUP & RESTORE (NEW) ---
+  downloadBackup: () => axiosInstance.get(`/settings/backup`, { responseType: 'blob' }),
+  restoreBackup: (file) => {
+      const formData = new FormData();
+      formData.append('backup_file', file);
+      return axiosInstance.post(`/settings/restore`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+      });
+  },
 
   // --- VENDORS ---
   addVendor: (data) => axiosInstance.post(`/vendors/add`, data),
@@ -97,6 +104,7 @@ export const api = {
   addMasterItemsBulk: (data) => axiosInstance.post(`/settings/items/bulk`, data), 
   updateMasterItem: (id, data) => axiosInstance.put(`/settings/items/${id}`, data), 
   deleteMasterItem: (id) => axiosInstance.delete(`/settings/items/${id}`),
+  
   getBusinessSettings: () => axiosInstance.get(`/settings/business`),
   saveBusinessSettings: (formData) => axiosInstance.post(`/settings/business`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
@@ -122,7 +130,7 @@ export const api = {
   receiveRefinedGold: (formData) => axiosInstance.post(`/refinery/receive-refined`, formData),
   useRefinedStock: (data) => axiosInstance.post(`/refinery/use-stock`, data),
 
-  // --- GST BILLING ---
+  // --- EXTERNAL GST BILLING ---
   getGstHistory: () => axiosInstance.get(`/gst/history`),
   getGstBill: (id) => axiosInstance.get(`/gst/${id}`),
   createGstBill: (data) => axiosInstance.post(`/gst/create`, data),
