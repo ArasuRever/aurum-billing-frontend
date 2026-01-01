@@ -9,7 +9,10 @@ function InventoryManager() {
   const [items, setItems] = useState([]); // Fresh Items
   const [oldItems, setOldItems] = useState([]); // Old Metal Items
   
-  const [filterMode, setFilterMode] = useState(''); 
+  const [filterMode, setFilterMode] = useState(''); // Source Filter (Vendor ID or 'OWN')
+  const [filterMetal, setFilterMetal] = useState(null); // Metal Type Filter (Clicked Card)
+  const [searchQuery, setSearchQuery] = useState(''); // NEW: Live Search State
+  
   const [vendors, setVendors] = useState([]);
   const [productTypes, setProductTypes] = useState([]); 
   
@@ -49,34 +52,73 @@ function InventoryManager() {
       } catch(err) { console.error(err); }
   };
 
-  const filteredItems = items.filter(i => {
-      if (filterMode === '') return true; 
-      if (filterMode === 'OWN') return i.source_type === 'OWN'; 
-      return i.vendor_id === parseInt(filterMode);
-  });
+  // --- FILTERING LOGIC ---
 
-  // --- DYNAMIC TOTALS CALCULATION (USING GROSS WEIGHT) ---
+  // 1. Filter by Source (Vendor/Own)
+  const getSourceFilteredList = () => {
+      const list = activeTab === 'FRESH' ? items : oldItems;
+      return list.filter(i => {
+          if (filterMode === '') return true; 
+          if (filterMode === 'OWN') return i.source_type === 'OWN'; 
+          return i.vendor_id === parseInt(filterMode);
+      });
+  };
+
+  // 2. Filter by Search Query (NEW)
+  const getSearchFilteredList = () => {
+      const sourceList = getSourceFilteredList();
+      if (!searchQuery) return sourceList;
+      
+      const lowerQuery = searchQuery.toLowerCase();
+      return sourceList.filter(item => 
+          (item.item_name && item.item_name.toLowerCase().includes(lowerQuery)) ||
+          (item.barcode && item.barcode.toLowerCase().includes(lowerQuery)) ||
+          (item.voucher_no && item.voucher_no.toLowerCase().includes(lowerQuery)) ||
+          (item.huid && item.huid.toLowerCase().includes(lowerQuery))
+      );
+  };
+
+  const searchFilteredItems = getSearchFilteredList();
+
+  // 3. Filter by Metal Card Click (Visual Filter)
+  const displayItems = searchFilteredItems.filter(i => 
+      !filterMetal || i.metal_type === filterMetal
+  );
+
+  // --- DYNAMIC TOTALS (Based on Search Results) ---
   const getTotals = () => {
-      const currentList = activeTab === 'FRESH' ? filteredItems : oldItems;
-      const typeSet = new Set([...productTypes.map(t=>t.name), ...currentList.map(i=>i.metal_type)]);
+      // Calculates totals for the cards based on what is currently found via search/source
+      const typeSet = new Set([...productTypes.map(t=>t.name), ...searchFilteredItems.map(i=>i.metal_type)]);
       const uniqueTypes = Array.from(typeSet);
 
       return uniqueTypes.map(type => {
-          const total = currentList
-              .filter(i => i.metal_type === type)
-              .reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0) // Always use gross_weight
+          const matchingItems = searchFilteredItems.filter(i => i.metal_type === type);
+          
+          const totalWeight = matchingItems
+              .reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0)
               .toFixed(3);
+          
+          const count = matchingItems.length;
           
           const setting = productTypes.find(t => t.name === type);
           return { 
               type, 
-              total, 
+              totalWeight,
+              count,
               color: setting ? setting.display_color : '#6c757d' 
           };
       });
   };
 
   const totals = getTotals();
+
+  // Calculate Global Search Totals for Summary Line
+  const totalSearchCount = searchFilteredItems.length;
+  const totalSearchWeight = searchFilteredItems.reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0).toFixed(3);
+
+  const handleCardClick = (type) => {
+      setFilterMetal(prev => prev === type ? null : type);
+  };
 
   const getSourceLabel = (item) => {
       if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
@@ -87,10 +129,9 @@ function InventoryManager() {
   };
 
   const handleSelectAll = (e) => {
-      const list = activeTab === 'FRESH' ? filteredItems : oldItems;
       if (e.target.checked) {
           const allIds = {};
-          list.forEach(i => allIds[i.id] = true);
+          displayItems.forEach(i => allIds[i.id] = true);
           setSelectedIds(allIds);
       } else {
           setSelectedIds({});
@@ -160,12 +201,12 @@ function InventoryManager() {
               <h4 className="fw-bold text-dark mb-3">Inventory Manager</h4>
               <ul className="nav nav-pills">
                   <li className="nav-item">
-                      <button className={`nav-link fw-bold px-4 ${activeTab==='FRESH'?'active':''}`} onClick={()=>setActiveTab('FRESH')}>
+                      <button className={`nav-link fw-bold px-4 ${activeTab==='FRESH'?'active':''}`} onClick={()=>{setActiveTab('FRESH'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}>
                           <i className="bi bi-gem me-2"></i>Fresh Stock
                       </button>
                   </li>
                   <li className="nav-item">
-                      <button className={`nav-link fw-bold px-4 ${activeTab==='OLD'?'active':''}`} onClick={()=>setActiveTab('OLD')}>
+                      <button className={`nav-link fw-bold px-4 ${activeTab==='OLD'?'active':''}`} onClick={()=>{setActiveTab('OLD'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}>
                           <i className="bi bi-recycle me-2"></i>Old Metal Stock
                       </button>
                   </li>
@@ -173,6 +214,18 @@ function InventoryManager() {
           </div>
           
           <div className="d-flex gap-2 align-items-center">
+              {/* SEARCH BAR (NEW) */}
+              <div className="input-group" style={{maxWidth: '250px'}}>
+                  <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
+                  <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search Item / Barcode..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+              </div>
+
               {selectedCount > 0 && (
                   <button className="btn btn-dark fw-bold" onClick={handlePrintTags}>
                       <i className="bi bi-printer-fill me-2"></i>Tags ({selectedCount})
@@ -193,25 +246,63 @@ function InventoryManager() {
           </div>
       </div>
 
-      {/* STATS CARDS */}
+      {/* SEARCH SUMMARY (Shows Total Count & Weight for current search) */}
+      {searchQuery && (
+          <div className="alert alert-info py-2 mb-4 d-flex justify-content-between align-items-center">
+              <span><i className="bi bi-info-circle-fill me-2"></i>Search Results for "<strong>{searchQuery}</strong>"</span>
+              <strong>Found: {totalSearchCount} items | Total Weight: {totalSearchWeight} g</strong>
+          </div>
+      )}
+
+      {/* STATS CARDS (Updated with Counts & Live Totals) */}
       <div className="row g-3 mb-4">
-        {totals.map(t => (
-            <div className="col-md-3" key={t.type}>
-                <div className="card text-white shadow-sm border-0" style={{backgroundColor: t.color || '#6c757d'}}>
-                    <div className="card-body">
-                        <h6 className="opacity-75 text-uppercase small">TOTAL {t.type} ({activeTab === 'FRESH' ? 'Stock' : 'Scrap'})</h6>
-                        <div className="fs-3 fw-bold">{t.total} <span className="fs-6">g</span></div>
+        {totals.map(t => {
+            const isActive = filterMetal === t.type;
+            return (
+                <div className="col-md-3" key={t.type}>
+                    <div 
+                        className={`card text-white shadow-sm border-0 cursor-pointer ${isActive ? 'ring-4 ring-offset-2' : ''}`} 
+                        style={{
+                            backgroundColor: t.color || '#6c757d',
+                            cursor: 'pointer',
+                            transform: isActive ? 'scale(1.02)' : 'scale(1)',
+                            transition: 'all 0.2s',
+                            boxShadow: isActive ? '0 0 0 3px rgba(0,0,0,0.2) inset' : 'none',
+                            border: isActive ? '2px solid white' : 'none'
+                        }}
+                        onClick={() => handleCardClick(t.type)}
+                        title={isActive ? "Click to clear filter" : `Filter by ${t.type}`}
+                    >
+                        <div className="card-body">
+                            <div className="d-flex justify-content-between align-items-start mb-2">
+                                <h6 className="opacity-75 text-uppercase small mb-0 fw-bold">{t.type}</h6>
+                                {isActive && <i className="bi bi-funnel-fill opacity-50"></i>}
+                            </div>
+                            <div className="d-flex justify-content-between align-items-end">
+                                <div>
+                                    <div className="fs-3 fw-bold lh-1">{t.totalWeight} <span className="fs-6 fw-normal">g</span></div>
+                                    <small className="opacity-75">{t.count} Items</small>
+                                </div>
+                                <i className="bi bi-box-seam fs-1 opacity-25"></i>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        ))}
+            );
+        })}
       </div>
 
       <div className="card shadow-sm border-0">
         <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
             <h5 className="mb-0 fw-bold text-secondary">
                 {activeTab === 'FRESH' ? 'Available Fresh Inventory' : 'Available Old Metal (Scrap)'}
+                {filterMetal && <span className="badge bg-secondary ms-2 small">{filterMetal}</span>}
             </h5>
+            {filterMetal && (
+                <button className="btn btn-sm btn-link text-muted text-decoration-none" onClick={() => setFilterMetal(null)}>
+                    Clear Filter <i className="bi bi-x"></i>
+                </button>
+            )}
         </div>
         
         <div className="table-responsive">
@@ -219,7 +310,7 @@ function InventoryManager() {
             <thead className="table-light">
                 <tr>
                     <th style={{width:'40px'}} className="text-center">
-                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} />
+                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={displayItems.length > 0 && displayItems.every(i => selectedIds[i.id])} />
                     </th>
                     <th>Item Name</th>
                     {activeTab === 'FRESH' ? (
@@ -230,7 +321,7 @@ function InventoryManager() {
                 </tr>
             </thead>
             <tbody>
-              {(activeTab === 'FRESH' ? filteredItems : oldItems).map(item => (
+              {displayItems.map(item => (
                 <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
                   <td className="text-center">
                       <input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} />
@@ -257,8 +348,8 @@ function InventoryManager() {
                   )}
                 </tr>
               ))}
-              {(activeTab === 'FRESH' ? filteredItems : oldItems).length === 0 && (
-                  <tr><td colSpan="7" className="text-center py-4 text-muted">No items found.</td></tr>
+              {displayItems.length === 0 && (
+                  <tr><td colSpan="7" className="text-center py-4 text-muted">No items found matching the current filters.</td></tr>
               )}
             </tbody>
           </table>

@@ -63,17 +63,6 @@ function BulkStockEntry() {
       const g = parseFloat(gross) || 0;
       const v = parseFloat(val) || 0;
       if(mode === 'TOUCH') return (g * (v / 100)).toFixed(3);
-      // Wastage Mode: Gross + (Gross * Wastage%) -> Pure is Gross? 
-      // Usually Billing "Wastage" means added weight. 
-      // For Inventory Entry: 
-      // If Touch: Pure = Gross * Touch%
-      // If Wastage: Pure = Gross + (Gross * Wastage%) -> This is usually for sales.
-      // Let's stick to standard Purity calc: Pure = Gross * (Touch/100)
-      // If user enters Wastage (e.g. 10%), Touch is roughly 90.9%?
-      // SIMPLE LOGIC: For Stock Entry, usually we define "Pure Content". 
-      // Let's assume the field is ALWAYS Purity/Touch % for simplicity unless specified.
-      // If mode is WASTAGE, we assume (100 / (100 + Wastage)) * 100 ??
-      // Let's keep it simple: The input is "Purity %" (Touch).
       return (g * (v / 100)).toFixed(3);
   };
 
@@ -113,6 +102,19 @@ function BulkStockEntry() {
 
   const handleFileChange = (id, file) => {
       setRows(rows.map(r => r.id === id ? { ...r, item_image: file } : r));
+  };
+
+  // --- VENDOR CHANGE HANDLER ---
+  const handleVendorChange = (e) => {
+      const val = e.target.value;
+      const selectedVendor = vendors.find(v => v.id.toString() === val);
+      
+      setBatchDetails(prev => ({
+          ...prev,
+          vendor_id: val,
+          // Auto-switch metal type if vendor has a specific metal preference
+          metal_type: selectedVendor?.metal_type ? selectedVendor.metal_type : prev.metal_type
+      }));
   };
 
   // --- SUBMIT ---
@@ -177,11 +179,11 @@ function BulkStockEntry() {
               <div className="row g-3">
                   <div className="col-md-3">
                       <label className="form-label small fw-bold text-muted">Stock Source</label>
-                      <select className="form-select border-primary" value={batchDetails.vendor_id} onChange={e => setBatchDetails({...batchDetails, vendor_id: e.target.value})}>
+                      <select className="form-select border-primary" value={batchDetails.vendor_id} onChange={handleVendorChange}>
                           <option value="">-- Select Source --</option>
                           <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
                           <optgroup label="Vendors">
-                              {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
+                              {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name} ({v.metal_type || 'Mix'})</option>)}
                           </optgroup>
                       </select>
                   </div>
@@ -239,7 +241,7 @@ function BulkStockEntry() {
                                     list={`list-${row.id}`}
                                     value={row.item_name}
                                     onChange={e => handleRowChange(row.id, 'item_name', e.target.value)}
-                                    autoFocus={index === rows.length - 1} // Auto focus new row
+                                    autoFocus={index === rows.length - 1} 
                                   />
                                   <datalist id={`list-${row.id}`}>
                                       {masterItems.filter(m => m.metal_type === batchDetails.metal_type).map(m => <option key={m.id} value={m.item_name} />)}
