@@ -230,12 +230,12 @@ function CustomerDetails() {
                 <div className="card-header bg-white p-0">
                     <ul className="nav nav-tabs card-header-tabs m-0" id="custTabs" role="tablist">
                         <li className="nav-item">
-                            <button className="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#history">
+                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#history">
                                 <i className="bi bi-cart me-2"></i>Purchase History
                             </button>
                         </li>
                         <li className="nav-item">
-                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#chits">
+                            <button className="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#chits">
                                 <i className="bi bi-piggy-bank me-2 text-warning"></i>Savings Scheme
                             </button>
                         </li>

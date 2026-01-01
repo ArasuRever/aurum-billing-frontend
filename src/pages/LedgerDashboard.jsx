@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api'; 
-import { useNavigate } from 'react-router-dom'; // NEW IMPORT
+import { useNavigate } from 'react-router-dom';
 
 function LedgerDashboard() {
-  const navigate = useNavigate(); // NEW HOOK
+  const navigate = useNavigate();
 
   // --- STATE ---
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -19,7 +19,7 @@ function LedgerDashboard() {
       silver_in: 0, silver_out: 0 
   });
   const [assets, setAssets] = useState({ cash_balance: 0, bank_balance: 0 });
-  const [oldMetalStats, setOldMetalStats] = useState(null); // NEW STATE
+  const [oldMetalStats, setOldMetalStats] = useState(null); 
 
   // Refinery Modal State
   const [showRefineryModal, setShowRefineryModal] = useState(false);
@@ -31,7 +31,7 @@ function LedgerDashboard() {
   const [vendors, setVendors] = useState([]);
   
   // Forms
-  const [sendForm, setSendForm] = useState({ metal: 'GOLD', selectedIds: [], manualWeight: '' });
+  const [sendForm, setSendForm] = useState({ metal: 'GOLD', selectedIds: [], manualWeight: '', totalNetWeight: '' });
   const [receiveForm, setReceiveForm] = useState({ batchId: '', weight: '', touch: '', reportNo: '', file: null });
   const [useForm, setUseForm] = useState({ batchId: '', type: 'PAY_VENDOR', vendorId: '', weight: '' });
 
@@ -44,55 +44,54 @@ function LedgerDashboard() {
     loadDashboard();
   }, [selectedDate]);
 
+  // Auto-calculate Total Net Weight when selection changes
+  useEffect(() => {
+    if (showRefineryModal && pendingScrap.length > 0) {
+        const selectedItems = pendingScrap.filter(i => sendForm.selectedIds.includes(i.id));
+        const listNet = selectedItems.reduce((sum, i) => sum + parseFloat(i.net_weight || 0), 0);
+        const manual = parseFloat(sendForm.manualWeight) || 0;
+        // Default assumption: Manual Weight is 100% Net, unless changed
+        setSendForm(prev => ({ ...prev, totalNetWeight: (listNet + manual).toFixed(3) }));
+    }
+  }, [sendForm.selectedIds, sendForm.manualWeight, pendingScrap, showRefineryModal]);
+
   const loadDashboard = async () => {
     setLoading(true);
     try {
-        // 1. Fetch Ledger Transactions
         const histRes = await api.getLedgerHistory('', selectedDate); 
         if (histRes.data) {
             setLedgerData(histRes.data.transactions || []);
             if(histRes.data.dayStats) setDayStats(histRes.data.dayStats);
         }
-
-        // 2. Fetch Assets
         const statsRes = await api.getLedgerStats();
-        if (statsRes.data && statsRes.data.assets) {
-            setAssets(statsRes.data.assets);
-        }
-
-        // 3. Fetch Old Metal Stats (NEW)
+        if (statsRes.data && statsRes.data.assets) setAssets(statsRes.data.assets);
         const oldStatsRes = await api.getOldMetalStats();
         setOldMetalStats(oldStatsRes.data);
-
-    } catch (err) {
-        console.error("Load Error:", err);
-    } finally {
-        setLoading(false);
-    }
+    } catch (err) { console.error("Load Error:", err); } finally { setLoading(false); }
   };
 
   const loadRefineryData = async () => {
       try {
           const pendingRes = await api.axiosInstance.get(`/refinery/pending-scrap?metal_type=${sendForm.metal}`);
           setPendingScrap(pendingRes.data);
-
           const batchesRes = await api.axiosInstance.get('/refinery/batches');
           setRefineryBatches(batchesRes.data);
-
           const vendRes = await api.getVendors();
           setVendors(vendRes.data);
       } catch (err) { console.error(err); }
   };
 
-  // --- HANDLERS (Same as before) ---
+  // --- HANDLERS ---
   const handleSendScrap = async () => {
       try {
           await api.axiosInstance.post('/refinery/create-batch', {
               metal_type: sendForm.metal,
               selected_item_ids: sendForm.selectedIds,
-              manual_weight: sendForm.manualWeight
+              manual_weight: sendForm.manualWeight,
+              net_weight: sendForm.totalNetWeight // Sending editable net weight
           });
           alert("Batch Created & Sent!");
+          setSendForm({ metal: 'GOLD', selectedIds: [], manualWeight: '', totalNetWeight: '' });
           loadRefineryData();
           loadDashboard(); 
       } catch(err) { alert(err.message); }
@@ -140,7 +139,6 @@ function LedgerDashboard() {
       } catch(err) { alert(err.message); }
   };
 
-  // --- UI HELPERS ---
   const formatMoney = (val) => Number(val || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
   
   const filteredTxns = ledgerData.filter(txn => {
@@ -152,6 +150,13 @@ function LedgerDashboard() {
       if (activeTab === 'REFINERY') return txn.type === 'REFINERY';
       return true;
   });
+
+  const getSelectedTotals = () => {
+      const selected = pendingScrap.filter(i => sendForm.selectedIds.includes(i.id));
+      const listGross = selected.reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0);
+      const manual = parseFloat(sendForm.manualWeight) || 0;
+      return { gross: (listGross + manual).toFixed(3) };
+  };
 
   return (
     <div className="container-fluid pb-5">
@@ -177,7 +182,7 @@ function LedgerDashboard() {
         </div>
       </div>
 
-      {/* ASSETS SUMMARY (Top Cards) */}
+      {/* ASSETS SUMMARY */}
       <div className="row g-3 mb-4">
           <div className="col-md-3">
               <div className="card bg-success text-white shadow-sm h-100">
@@ -195,7 +200,6 @@ function LedgerDashboard() {
                   </div>
               </div>
           </div>
-          {/* Day Specific Stats */}
           <div className="col-md-6">
               <div className="card shadow-sm border-0 h-100">
                   <div className="card-body d-flex justify-content-around align-items-center">
@@ -213,78 +217,57 @@ function LedgerDashboard() {
           </div>
       </div>
 
-      {/* --- NEW SECTION: OLD METAL STATS --- */}
+      {/* OLD METAL STATS (UPDATED CARDS) */}
       <div className="row g-3 mb-4">
         <div className="col-12">
             <h6 className="fw-bold text-secondary text-uppercase ls-1">Collected Scrap / Old Metal (Total)</h6>
         </div>
         <div className="col-md-6">
-            <div 
-                className="card bg-warning bg-opacity-10 border-warning text-dark shadow-sm cursor-pointer hover-shadow" 
-                onClick={() => navigate('/old-metal')}
-                style={{cursor: 'pointer'}}
-            >
+            <div className="card bg-warning bg-opacity-10 border-warning text-dark shadow-sm cursor-pointer hover-shadow" onClick={() => navigate('/old-metal')}>
                 <div className="card-body d-flex justify-content-between align-items-center">
                     <div>
                         <h5 className="fw-bold mb-0 text-warning text-opacity-75">OLD GOLD</h5>
                         <small className="text-muted">Purchased + Exchanged</small>
                     </div>
                     <div className="text-end">
-                        <h3 className="fw-bold mb-0">{parseFloat(oldMetalStats?.gold_weight || 0).toFixed(3)} g</h3>
+                        <div className="fw-bold fs-5">{parseFloat(oldMetalStats?.gold_total_gross || 0).toFixed(3)} g <span className="small text-muted">Gross</span></div>
+                        <div className="fw-bold fs-5 text-success">{parseFloat(oldMetalStats?.gold_total_net || 0).toFixed(3)} g <span className="small text-muted">Net</span></div>
                     </div>
                 </div>
             </div>
         </div>
         <div className="col-md-6">
-            <div 
-                className="card bg-secondary bg-opacity-10 border-secondary text-dark shadow-sm cursor-pointer hover-shadow" 
-                onClick={() => navigate('/old-metal')}
-                style={{cursor: 'pointer'}}
-            >
+            <div className="card bg-secondary bg-opacity-10 border-secondary text-dark shadow-sm cursor-pointer hover-shadow" onClick={() => navigate('/old-metal')}>
                 <div className="card-body d-flex justify-content-between align-items-center">
                     <div>
                         <h5 className="fw-bold mb-0 text-secondary">OLD SILVER</h5>
                         <small className="text-muted">Purchased + Exchanged</small>
                     </div>
                     <div className="text-end">
-                        <h3 className="fw-bold mb-0">{parseFloat(oldMetalStats?.silver_weight || 0).toFixed(3)} g</h3>
+                         <div className="fw-bold fs-5">{parseFloat(oldMetalStats?.silver_total_gross || 0).toFixed(3)} g <span className="small text-muted">Gross</span></div>
+                         <div className="fw-bold fs-5 text-success">{parseFloat(oldMetalStats?.silver_total_net || 0).toFixed(3)} g <span className="small text-muted">Net</span></div>
                     </div>
                 </div>
             </div>
         </div>
       </div>
 
-      {/* FILTERS */}
+      {/* FILTERS & TRANSACTIONS TABLE */}
       <div className="card shadow-sm border-0 mb-3">
           <div className="card-body p-2">
               <div className="nav nav-pills nav-fill">
                   {['ALL', 'GOLD', 'SILVER', 'CASH', 'BANK', 'REFINERY'].map(tab => (
-                      <button 
-                        key={tab} 
-                        className={`nav-link ${activeTab === tab ? 'active bg-dark' : 'text-muted'}`}
-                        onClick={() => setActiveTab(tab)}
-                      >
-                          {tab}
-                      </button>
+                      <button key={tab} className={`nav-link ${activeTab === tab ? 'active bg-dark' : 'text-muted'}`} onClick={() => setActiveTab(tab)}>{tab}</button>
                   ))}
               </div>
           </div>
       </div>
 
-      {/* TRANSACTIONS TABLE */}
       <div className="card shadow-sm border-0">
           <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                   <thead className="table-light text-secondary small">
-                      <tr>
-                          <th>TIME</th>
-                          <th>TYPE</th>
-                          <th>DESCRIPTION</th>
-                          <th>MODE</th>
-                          <th className="text-end text-warning">GOLD</th>
-                          <th className="text-end text-secondary">SILVER</th>
-                          <th className="text-end">AMOUNT</th>
-                      </tr>
+                      <tr><th>TIME</th><th>TYPE</th><th>DESCRIPTION</th><th>MODE</th><th className="text-end text-warning">GOLD</th><th className="text-end text-secondary">SILVER</th><th className="text-end">AMOUNT</th></tr>
                   </thead>
                   <tbody>
                       {loading ? <tr><td colSpan="7" className="text-center py-5">Loading Data...</td></tr> : 
@@ -295,15 +278,9 @@ function LedgerDashboard() {
                               <td><span className="badge bg-secondary text-light">{txn.type.replace('_',' ')}</span></td>
                               <td className="fw-bold text-dark">{txn.description}</td>
                               <td className="small">{txn.payment_mode}</td>
-                              <td className="text-end text-warning font-monospace">
-                                  {parseFloat(txn.gold_weight) > 0 ? <strong>{parseFloat(txn.gold_weight).toFixed(3)}g</strong> : '-'}
-                              </td>
-                              <td className="text-end text-secondary font-monospace">
-                                  {parseFloat(txn.silver_weight) > 0 ? <strong>{parseFloat(txn.silver_weight).toFixed(3)}g</strong> : '-'}
-                              </td>
-                              <td className={`text-end fw-bold ${txn.direction === 'IN' ? 'text-success' : 'text-danger'}`}>
-                                  {parseFloat(txn.cash_amount) > 0 ? (txn.direction === 'IN' ? '+' : '-') + formatMoney(txn.cash_amount) : '-'}
-                              </td>
+                              <td className="text-end text-warning font-monospace">{parseFloat(txn.gold_weight) > 0 ? <strong>{parseFloat(txn.gold_weight).toFixed(3)}g</strong> : '-'}</td>
+                              <td className="text-end text-secondary font-monospace">{parseFloat(txn.silver_weight) > 0 ? <strong>{parseFloat(txn.silver_weight).toFixed(3)}g</strong> : '-'}</td>
+                              <td className={`text-end fw-bold ${txn.direction === 'IN' ? 'text-success' : 'text-danger'}`}>{parseFloat(txn.cash_amount) > 0 ? (txn.direction === 'IN' ? '+' : '-') + formatMoney(txn.cash_amount) : '-'}</td>
                           </tr>
                       ))}
                   </tbody>
@@ -311,7 +288,7 @@ function LedgerDashboard() {
           </div>
       </div>
 
-      {/* --- MODALS (Refinery, Txn, etc) kept same as original --- */}
+      {/* REFINERY MODAL (UPDATED) */}
       {showRefineryModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -321,14 +298,12 @@ function LedgerDashboard() {
                         <button className="btn-close" onClick={() => setShowRefineryModal(false)}></button>
                     </div>
                     <div className="modal-body">
-                        {/* Tabs inside Modal */}
                         <ul className="nav nav-tabs mb-3">
                             <li className="nav-item"><button className={`nav-link ${refineryTab === 'SEND' && 'active'}`} onClick={() => setRefineryTab('SEND')}>1. Send Scrap</button></li>
                             <li className="nav-item"><button className={`nav-link ${refineryTab === 'RECEIVE' && 'active'}`} onClick={() => setRefineryTab('RECEIVE')}>2. Receive Report</button></li>
                             <li className="nav-item"><button className={`nav-link ${refineryTab === 'USE' && 'active'}`} onClick={() => setRefineryTab('USE')}>3. Use Pure Gold</button></li>
                         </ul>
 
-                        {/* TAB 1: SEND SCRAP */}
                         {refineryTab === 'SEND' && (
                             <div>
                                 <div className="d-flex gap-2 mb-3">
@@ -340,34 +315,25 @@ function LedgerDashboard() {
                                 </div>
                                 <div className="table-responsive border mb-3" style={{maxHeight:'200px'}}>
                                     <table className="table table-sm table-hover mb-0">
-                                        <thead className="table-light sticky-top">
-                                            <tr>
-                                                <th>Select</th>
-                                                <th>Item</th>
-                                                <th>Wt</th>
-                                                <th>Date</th>
-                                            </tr>
-                                        </thead>
+                                        <thead className="table-light sticky-top"><tr><th>Select</th><th>Item</th><th>Gross</th><th>Net</th><th>Date</th></tr></thead>
                                         <tbody>
                                             {pendingScrap.map(item => (
                                                 <tr key={item.id}>
                                                     <td>
-                                                        <input type="checkbox" 
-                                                            checked={sendForm.selectedIds.includes(item.id)}
+                                                        <input type="checkbox" checked={sendForm.selectedIds.includes(item.id)}
                                                             onChange={e => {
-                                                                const ids = e.target.checked 
-                                                                    ? [...sendForm.selectedIds, item.id]
-                                                                    : sendForm.selectedIds.filter(id => id !== item.id);
+                                                                const ids = e.target.checked ? [...sendForm.selectedIds, item.id] : sendForm.selectedIds.filter(id => id !== item.id);
                                                                 setSendForm({...sendForm, selectedIds: ids});
                                                             }}
                                                         />
                                                     </td>
                                                     <td>{item.item_name}</td>
+                                                    <td>{item.gross_weight}g</td>
                                                     <td>{item.net_weight}g</td>
                                                     <td>{new Date(item.date).toLocaleDateString()}</td>
                                                 </tr>
                                             ))}
-                                            {pendingScrap.length === 0 && <tr><td colSpan="4" className="text-center text-muted">No pending items found.</td></tr>}
+                                            {pendingScrap.length === 0 && <tr><td colSpan="5" className="text-center text-muted">No pending items found.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -376,11 +342,31 @@ function LedgerDashboard() {
                                     <input type="number" className="form-control" placeholder="0.000" value={sendForm.manualWeight} onChange={e => setSendForm({...sendForm, manualWeight: e.target.value})} />
                                     <div className="form-text">If you have loose scrap not in the list above.</div>
                                 </div>
-                                <button className="btn btn-dark w-100" onClick={handleSendScrap}>Create & Send Batch</button>
+
+                                {/* TOTALS SECTION WITH EDITABLE NET WEIGHT */}
+                                <div className="card bg-light border-0 p-3 mb-3">
+                                    <div className="row text-center align-items-center">
+                                        <div className="col-6 border-end">
+                                            <small className="text-muted fw-bold d-block">TOTAL GROSS WEIGHT</small>
+                                            <h3 className="fw-bold mb-0">{getSelectedTotals().gross} g</h3>
+                                        </div>
+                                        <div className="col-6">
+                                            <small className="text-muted fw-bold d-block mb-1">TOTAL NET WEIGHT (EDITABLE)</small>
+                                            <input 
+                                                type="number" 
+                                                className="form-control text-center fw-bold fs-5 text-success mx-auto" 
+                                                style={{maxWidth:'150px'}}
+                                                value={sendForm.totalNetWeight}
+                                                onChange={e => setSendForm({...sendForm, totalNetWeight: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button className="btn btn-dark w-100 py-2 fw-bold" onClick={handleSendScrap}>Create & Send Batch</button>
                             </div>
                         )}
 
-                        {/* TAB 2: RECEIVE REPORT */}
                         {refineryTab === 'RECEIVE' && (
                             <div>
                                 <label className="small fw-bold mb-1">Select Sent Batch</label>
@@ -390,33 +376,16 @@ function LedgerDashboard() {
                                         <option key={b.id} value={b.id}>{b.batch_no} ({b.gross_weight}g {b.metal_type}) - {new Date(b.sent_date).toLocaleDateString()}</option>
                                     ))}
                                 </select>
-
                                 <div className="row g-2 mb-3">
-                                    <div className="col-6">
-                                        <label className="small fw-bold">Refined Weight (g)</label>
-                                        <input type="number" className="form-control" value={receiveForm.weight} onChange={e => setReceiveForm({...receiveForm, weight: e.target.value})} />
-                                    </div>
-                                    <div className="col-6">
-                                        <label className="small fw-bold">Touch %</label>
-                                        <input type="number" className="form-control" placeholder="99.50" value={receiveForm.touch} onChange={e => setReceiveForm({...receiveForm, touch: e.target.value})} />
-                                    </div>
+                                    <div className="col-6"><label className="small fw-bold">Refined Weight (g)</label><input type="number" className="form-control" value={receiveForm.weight} onChange={e => setReceiveForm({...receiveForm, weight: e.target.value})} /></div>
+                                    <div className="col-6"><label className="small fw-bold">Touch %</label><input type="number" className="form-control" placeholder="99.50" value={receiveForm.touch} onChange={e => setReceiveForm({...receiveForm, touch: e.target.value})} /></div>
                                 </div>
-
-                                <div className="mb-3">
-                                    <label className="small fw-bold">Touch Report No</label>
-                                    <input type="text" className="form-control" value={receiveForm.reportNo} onChange={e => setReceiveForm({...receiveForm, reportNo: e.target.value})} />
-                                </div>
-
-                                <div className="mb-3">
-                                    <label className="small fw-bold">Upload Report Image</label>
-                                    <input type="file" className="form-control" onChange={e => setReceiveForm({...receiveForm, file: e.target.files[0]})} />
-                                </div>
-
+                                <div className="mb-3"><label className="small fw-bold">Touch Report No</label><input type="text" className="form-control" value={receiveForm.reportNo} onChange={e => setReceiveForm({...receiveForm, reportNo: e.target.value})} /></div>
+                                <div className="mb-3"><label className="small fw-bold">Upload Report Image</label><input type="file" className="form-control" onChange={e => setReceiveForm({...receiveForm, file: e.target.files[0]})} /></div>
                                 <button className="btn btn-success w-100" onClick={handleReceiveRefined}>Update & Save Pure Weight</button>
                             </div>
                         )}
 
-                        {/* TAB 3: USE GOLD */}
                         {refineryTab === 'USE' && (
                             <div>
                                 <label className="small fw-bold mb-1">Select Refined Batch</label>
@@ -424,37 +393,12 @@ function LedgerDashboard() {
                                     <option value="">-- Select Batch --</option>
                                     {refineryBatches.filter(b => b.status === 'REFINED').map(b => {
                                         const available = parseFloat(b.pure_weight) - parseFloat(b.used_weight || 0);
-                                        return (
-                                            <option key={b.id} value={b.id}>
-                                                {b.batch_no} (Avail: {available.toFixed(3)}g Pure)
-                                            </option>
-                                        );
+                                        return <option key={b.id} value={b.id}>{b.batch_no} (Avail: {available.toFixed(3)}g Pure)</option>;
                                     })}
                                 </select>
-
-                                <div className="mb-3">
-                                    <label className="small fw-bold">Action Type</label>
-                                    <select className="form-select" value={useForm.type} onChange={e => setUseForm({...useForm, type: e.target.value})}>
-                                        <option value="PAY_VENDOR">Pay Vendor (Gold Payment)</option>
-                                        <option value="ADD_TO_INVENTORY">Add to Stock (Raw Material)</option>
-                                    </select>
-                                </div>
-
-                                {useForm.type === 'PAY_VENDOR' && (
-                                    <div className="mb-3">
-                                        <label className="small fw-bold">Select Vendor</label>
-                                        <select className="form-select" value={useForm.vendorId} onChange={e => setUseForm({...useForm, vendorId: e.target.value})}>
-                                            <option value="">-- Select Vendor --</option>
-                                            {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
-                                        </select>
-                                    </div>
-                                )}
-
-                                <div className="mb-3">
-                                    <label className="small fw-bold">Weight to Use (Pure g)</label>
-                                    <input type="number" className="form-control" value={useForm.weight} onChange={e => setUseForm({...useForm, weight: e.target.value})} />
-                                </div>
-
+                                <div className="mb-3"><label className="small fw-bold">Action Type</label><select className="form-select" value={useForm.type} onChange={e => setUseForm({...useForm, type: e.target.value})}><option value="PAY_VENDOR">Pay Vendor (Gold Payment)</option><option value="ADD_TO_INVENTORY">Add to Stock (Raw Material)</option></select></div>
+                                {useForm.type === 'PAY_VENDOR' && ( <div className="mb-3"><label className="small fw-bold">Select Vendor</label><select className="form-select" value={useForm.vendorId} onChange={e => setUseForm({...useForm, vendorId: e.target.value})}><option value="">-- Select Vendor --</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}</select></div> )}
+                                <div className="mb-3"><label className="small fw-bold">Weight to Use (Pure g)</label><input type="number" className="form-control" value={useForm.weight} onChange={e => setUseForm({...useForm, weight: e.target.value})} /></div>
                                 <button className="btn btn-primary w-100" onClick={handleUseStock}>Execute Transaction</button>
                             </div>
                         )}
@@ -469,10 +413,7 @@ function LedgerDashboard() {
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog">
                 <div className="modal-content">
-                    <div className="modal-header">
-                        <h5 className="modal-title">Manual Entry</h5>
-                        <button className="btn-close" onClick={() => setShowTxnModal(false)}></button>
-                    </div>
+                    <div className="modal-header"><h5 className="modal-title">Manual Entry</h5><button className="btn-close" onClick={() => setShowTxnModal(false)}></button></div>
                     <div className="modal-body">
                          <div className="btn-group w-100 mb-3">
                              <button className={`btn ${txnForm.type === 'INCOME' ? 'btn-success' : 'btn-outline-secondary'}`} onClick={() => setTxnForm({...txnForm, type: 'INCOME'})}>INCOME</button>
@@ -480,19 +421,13 @@ function LedgerDashboard() {
                          </div>
                          <input className="form-control mb-2" placeholder="Description" value={txnForm.description} onChange={e => setTxnForm({...txnForm, description: e.target.value})} />
                          <input type="number" className="form-control mb-2" placeholder="Amount" value={txnForm.amount} onChange={e => setTxnForm({...txnForm, amount: e.target.value})} />
-                         <select className="form-select" value={txnForm.mode} onChange={e => setTxnForm({...txnForm, mode: e.target.value})}>
-                             <option value="CASH">CASH</option>
-                             <option value="ONLINE">ONLINE / BANK</option>
-                         </select>
+                         <select className="form-select" value={txnForm.mode} onChange={e => setTxnForm({...txnForm, mode: e.target.value})}><option value="CASH">CASH</option><option value="ONLINE">ONLINE / BANK</option></select>
                     </div>
-                    <div className="modal-footer">
-                        <button className="btn btn-primary w-100" onClick={handleManualTxn}>SAVE</button>
-                    </div>
+                    <div className="modal-footer"><button className="btn btn-primary w-100" onClick={handleManualTxn}>SAVE</button></div>
                 </div>
             </div>
         </div>
       )}
-
     </div>
   );
 }
