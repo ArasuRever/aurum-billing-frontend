@@ -47,7 +47,7 @@ function ShopDetails() {
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
     
-    // FIX: Default metalOverride to 'AUTO'
+    // Default metalOverride to 'AUTO'
     setItemRows([{ 
         type: defaultMetal, desc: '', gross: '', quantity: 1, 
         wast: 92, calcType: 'MUL', 
@@ -72,7 +72,7 @@ function ShopDetails() {
       newRows[index].mc_total = (gross * mcRate).toFixed(2);
     }
     
-    // Reset override if user changes type
+    // Reset override to AUTO if user changes the type selection
     if (field === 'type') {
         newRows[index].metalOverride = 'AUTO';
     }
@@ -108,6 +108,10 @@ function ShopDetails() {
               const item = res.data[0]; 
               const newRows = [...itemRows];
               
+              // Auto-detect metal type for the override toggle
+              const m = (item.metal_type || '').toUpperCase();
+              const isSilver = m.includes('SILVER') || m.includes('AG') || m.includes('STERLING') || m.includes('925');
+
               newRows[index] = {
                   ...newRows[index],
                   desc: item.item_name,
@@ -118,7 +122,7 @@ function ShopDetails() {
                   stock_type: item.stock_type, 
                   quantity: 1,
                   wast: item.wastage_percent || 0,
-                  metalOverride: 'AUTO' // Let logic decide
+                  metalOverride: isSilver ? 'SILVER' : 'GOLD' // Auto-set
               };
               
               setItemRows(newRows);
@@ -144,7 +148,7 @@ function ShopDetails() {
   
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
 
-  // Helper to check metal type for a row
+  // === FIXED HELPER: ROBUST METAL DETECTION ===
   const getMetalTypeForRow = (row) => {
       if (row.metalOverride === 'GOLD') return 'GOLD';
       if (row.metalOverride === 'SILVER') return 'SILVER';
@@ -154,7 +158,13 @@ function ShopDetails() {
       const matchedType = productTypes.find(t => (t.name || '').toUpperCase() === typeStr);
       const dbMetalType = matchedType ? (matchedType.metal_type || '').toUpperCase() : typeStr;
       
-      const isSilver = dbMetalType.includes('SILVER') || dbMetalType === 'AG';
+      // Checking for ALL common silver keywords
+      const isSilver = dbMetalType.includes('SILVER') || 
+                       dbMetalType.includes('AG') || 
+                       dbMetalType.includes('STERLING') || 
+                       dbMetalType.includes('925') ||
+                       dbMetalType.includes('STG');
+                       
       return isSilver ? 'SILVER' : 'GOLD';
   };
 
@@ -200,7 +210,7 @@ function ShopDetails() {
                 if(row.stock_type === 'BULK') details += ` (x${qty})`; 
                 if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
                 
-                // CORRECT DETECTION
+                // CORRECT DETECTION using the updated helper
                 const metalType = getMetalTypeForRow(row);
                 const isSilver = (metalType === 'SILVER');
                 
@@ -499,7 +509,7 @@ function ShopDetails() {
 
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
                             
-                            {/* FIXED QUANTITY & STOCK TYPE */}
+                            {/* FIXED QUANTITY EDITING */}
                             <td>
                                 <div className="input-group input-group-sm">
                                     <input 
@@ -507,6 +517,7 @@ function ShopDetails() {
                                         type="number" 
                                         value={row.quantity} 
                                         onChange={e => handleRowChange(i, 'quantity', e.target.value)}
+                                        // Disabled only if linked non-bulk item (optional, here just enabled always for ease)
                                     />
                                     {!row.inventory_id && (
                                         <button className="btn btn-outline-secondary px-1" title="Toggle Bulk/Single" onClick={() => toggleStockType(i)}>
