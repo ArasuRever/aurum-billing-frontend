@@ -6,7 +6,8 @@ function ShopDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [shop, setShop] = useState(null);
-  const [transactions, setTransactions] = useState([]);
+  const [transactions, setTransactions] = useState([]); // Borrow/Lend Items (Top tables)
+  const [fullHistory, setFullHistory] = useState([]);   // Combined History (Bottom table)
   const [loading, setLoading] = useState(false);
   const [productTypes, setProductTypes] = useState([]); 
 
@@ -18,7 +19,7 @@ function ShopDetails() {
 
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedTxn, setSelectedTxn] = useState(null);
-  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [paymentHistory, setPaymentHistory] = useState([]); 
   const [settleForm, setSettleForm] = useState({ mode: 'METAL', gold_val: '', silver_val: '', cash_val: '', metal_rate: '' });
 
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -35,6 +36,7 @@ function ShopDetails() {
         ]);
         setShop(res.data.shop); 
         setTransactions(res.data.transactions); 
+        setFullHistory(res.data.full_history || []); // New Unified History
         setProductTypes(typeRes.data || []);
     } catch (err) { console.error(err); }
   };
@@ -46,8 +48,6 @@ function ShopDetails() {
     setActiveModal(type);
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    
-    // Default metalOverride to 'AUTO'
     setItemRows([{ 
         type: defaultMetal, desc: '', gross: '', quantity: 1, 
         wast: 92, calcType: 'MUL', 
@@ -64,30 +64,22 @@ function ShopDetails() {
     const val = parseFloat(newRows[index].wast) || 0;
     const mcRate = parseFloat(newRows[index].mc_rate) || 0;
     const cType = newRows[index].calcType;
-
     if (field === 'gross' || field === 'wast' || field === 'calcType') {
       newRows[index].pure = (cType === 'MUL' ? gross * (val/100) : gross * (1 + val/100)).toFixed(3);
     }
     if (field === 'gross' || field === 'mc_rate') {
       newRows[index].mc_total = (gross * mcRate).toFixed(2);
     }
-    
-    // Reset override to AUTO if user changes the type selection
-    if (field === 'type') {
-        newRows[index].metalOverride = 'AUTO';
-    }
-
+    if (field === 'type') newRows[index].metalOverride = 'AUTO';
     setItemRows(newRows);
   };
-
+  
   const toggleMetalOverride = (index) => {
       const newRows = [...itemRows];
       const current = newRows[index].metalOverride;
-      // Cycle: AUTO -> GOLD -> SILVER -> AUTO
       if (current === 'AUTO') newRows[index].metalOverride = 'GOLD';
       else if (current === 'GOLD') newRows[index].metalOverride = 'SILVER';
       else newRows[index].metalOverride = 'AUTO';
-      
       setItemRows(newRows);
   };
 
@@ -96,93 +88,50 @@ function ShopDetails() {
       newRows[index].stock_type = newRows[index].stock_type === 'SINGLE' ? 'BULK' : 'SINGLE';
       setItemRows(newRows);
   };
-
-  // --- SEARCH INVENTORY ---
+  
+  const getMetalTypeForRow = (row) => {
+      if (row.metalOverride === 'GOLD') return 'GOLD';
+      if (row.metalOverride === 'SILVER') return 'SILVER';
+      const typeStr = (row.type || '').trim().toUpperCase();
+      const matchedType = productTypes.find(t => (t.name || '').toUpperCase() === typeStr);
+      const dbMetalType = matchedType ? (matchedType.metal_type || '').toUpperCase() : typeStr;
+      const isSilver = dbMetalType.includes('SILVER') || dbMetalType.includes('AG') || dbMetalType.includes('STERLING') || dbMetalType.includes('925');
+      return isSilver ? 'SILVER' : 'GOLD';
+  };
+  
   const searchAndFill = async (index) => {
-      const query = prompt("Enter Item Name / Barcode to Search:");
+      const query = prompt("Enter Item Name / Barcode:");
       if (!query) return;
-
       try {
           const res = await api.searchBillingItem(query);
           if (res.data && res.data.length > 0) {
               const item = res.data[0]; 
               const newRows = [...itemRows];
-              
-              // Auto-detect metal type for the override toggle
               const m = (item.metal_type || '').toUpperCase();
-              const isSilver = m.includes('SILVER') || m.includes('AG') || m.includes('STERLING') || m.includes('925');
-
-              newRows[index] = {
-                  ...newRows[index],
-                  desc: item.item_name,
-                  gross: item.gross_weight, 
-                  type: item.metal_type, 
-                  inventory_id: item.id, 
-                  pure: item.pure_weight,
-                  stock_type: item.stock_type, 
-                  quantity: 1,
-                  wast: item.wastage_percent || 0,
-                  metalOverride: isSilver ? 'SILVER' : 'GOLD' // Auto-set
-              };
-              
+              const isSilver = m.includes('SILVER') || m.includes('AG') || m.includes('STERLING');
+              newRows[index] = { ...newRows[index], desc: item.item_name, gross: item.gross_weight, type: item.metal_type, inventory_id: item.id, pure: item.pure_weight, stock_type: item.stock_type, quantity: 1, wast: item.wastage_percent || 0, metalOverride: isSilver ? 'SILVER' : 'GOLD' };
               setItemRows(newRows);
-              alert(`Selected: ${item.item_name}`);
-          } else {
-              alert("No item found.");
-          }
-      } catch (err) {
-          console.error(err);
-          alert("Error searching item.");
-      }
-  };
-
-  const addRow = () => {
-    const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
-    setItemRows([...itemRows, { 
-        type: defaultMetal, desc: '', gross: '', quantity: 1, 
-        wast: 92, calcType: 'MUL', 
-        mc_rate: '', mc_total: 0, pure: 0, 
-        inventory_id: null, stock_type: 'SINGLE', metalOverride: 'AUTO' 
-    }]);
+          } else { alert("No item found."); }
+      } catch (err) { alert("Error searching."); }
   };
   
+  const addRow = () => {
+    const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
+    setItemRows([...itemRows, { type: defaultMetal, desc: '', gross: '', quantity: 1, wast: 92, calcType: 'MUL', mc_rate: '', mc_total: 0, pure: 0, inventory_id: null, stock_type: 'SINGLE', metalOverride: 'AUTO' }]);
+  };
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
 
-  // === FIXED HELPER: ROBUST METAL DETECTION ===
-  const getMetalTypeForRow = (row) => {
-      if (row.metalOverride === 'GOLD') return 'GOLD';
-      if (row.metalOverride === 'SILVER') return 'SILVER';
-      
-      // AUTO MODE: Detect from Type Name or Product Types
-      const typeStr = (row.type || '').trim().toUpperCase();
-      const matchedType = productTypes.find(t => (t.name || '').toUpperCase() === typeStr);
-      const dbMetalType = matchedType ? (matchedType.metal_type || '').toUpperCase() : typeStr;
-      
-      // Checking for ALL common silver keywords
-      const isSilver = dbMetalType.includes('SILVER') || 
-                       dbMetalType.includes('AG') || 
-                       dbMetalType.includes('STERLING') || 
-                       dbMetalType.includes('925') ||
-                       dbMetalType.includes('STG');
-                       
-      return isSilver ? 'SILVER' : 'GOLD';
-  };
-
+  // --- SUBMIT ---
   const handleMainSubmit = async () => {
     if (loading) return;
     setLoading(true);
     try {
         let promises = [];
         let actionType = '';
-
-        if (formMode === 'ITEM') {
-             actionType = (activeModal === 'BORROW') ? 'BORROW_ADD' : 'LEND_ADD';
-        } else {
-             if (activeModal === 'BORROW') {
-                 actionType = (form.bulk_action === 'ADD') ? 'BORROW_ADD' : 'BORROW_REPAY';
-             } else {
-                 actionType = (form.bulk_action === 'ADD') ? 'LEND_ADD' : 'LEND_COLLECT';
-             }
+        if (formMode === 'ITEM') { actionType = (activeModal === 'BORROW') ? 'BORROW_ADD' : 'LEND_ADD'; } 
+        else {
+             if (activeModal === 'BORROW') actionType = (form.bulk_action === 'ADD') ? 'BORROW_ADD' : 'BORROW_REPAY';
+             else actionType = (form.bulk_action === 'ADD') ? 'LEND_ADD' : 'LEND_COLLECT';
         }
 
         if (formMode === 'ITEM') {
@@ -200,60 +149,34 @@ function ShopDetails() {
             }
 
             validRows.forEach(row => {
-                const gross = parseFloat(row.gross) || 0;
-                const wast = parseFloat(row.wast) || 0;
-                const pure = parseFloat(row.pure) || 0;
-                const mcTotal = parseFloat(row.mc_total) || 0; 
-                const qty = parseInt(row.quantity) || 1;
-
-                let details = `${row.gross}g`;
-                if(row.stock_type === 'BULK') details += ` (x${qty})`; 
-                if(row.wast) details += ` @ ${row.wast}${row.calcType==='MUL'?'% Tch':'% Wst'}`;
-                
-                // CORRECT DETECTION using the updated helper
                 const metalType = getMetalTypeForRow(row);
                 const isSilver = (metalType === 'SILVER');
+                const qty = parseInt(row.quantity) || 1;
+                let details = `${row.gross}g`; if(row.stock_type === 'BULK') details += ` (x${qty})`;
                 
                 const payload = {
                     shop_id: id, action: actionType, description: `${row.desc || row.type} (${details})`,
-                    gross_weight: gross, wastage_percent: wast, making_charges: mcTotal,
-                    pure_weight: !isSilver ? pure : 0,  
-                    silver_weight: isSilver ? pure : 0, 
-                    cash_amount: mcTotal,
-                    transfer_cash: false,
-                    inventory_item_id: row.inventory_id,
-                    quantity: qty 
+                    gross_weight: parseFloat(row.gross)||0, wastage_percent: parseFloat(row.wast)||0, making_charges: parseFloat(row.mc_total)||0,
+                    pure_weight: !isSilver ? parseFloat(row.pure)||0 : 0,  
+                    silver_weight: isSilver ? parseFloat(row.pure)||0 : 0, 
+                    cash_amount: parseFloat(row.mc_total)||0, transfer_cash: false, inventory_item_id: row.inventory_id, quantity: qty 
                 };
                 promises.push(api.shopTransaction(payload));
             });
-
+            
             if (manualCash > 0) {
-                promises.push(api.shopTransaction({
-                    shop_id: id, action: actionType, description: "Cash Loan / Advance",
-                    gross_weight: 0, wastage_percent: 0, making_charges: 0, pure_weight: 0, silver_weight: 0, 
-                    cash_amount: manualCash,
-                    transfer_cash: true 
-                }));
+                promises.push(api.shopTransaction({ shop_id: id, action: actionType, description: "Cash Loan / Advance", gross_weight: 0, wastage_percent: 0, making_charges: 0, pure_weight: 0, silver_weight: 0, cash_amount: manualCash, transfer_cash: true }));
             }
         } else {
-            promises.push(api.shopTransaction({
-                shop_id: id, action: actionType, description: form.description || 'Manual Entry',
-                pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash,
-                transfer_cash: true 
-            }));
+            promises.push(api.shopTransaction({ shop_id: id, action: actionType, description: form.description || 'Manual Entry', pure_weight: form.settle_gold, silver_weight: form.settle_silver, cash_amount: form.settle_cash, transfer_cash: true }));
         }
         await Promise.all(promises);
         alert('Saved!'); setActiveModal(null); loadData(); 
-    } catch (err) { 
-        console.error(err);
-        alert('Error saving: ' + (err.response?.data?.error || err.message)); 
-    } finally { 
-        setLoading(false); 
-    }
+    } catch (err) { alert('Error: ' + err.message); } finally { setLoading(false); }
   };
 
   const handleDeleteTxn = async (txnId) => {
-    if(!window.confirm("Undo/Delete this transaction? Balance will be reversed. If linked to inventory, item will be restored.")) return;
+    if(!window.confirm("Undo/Delete this transaction? Balance will be reversed.")) return;
     try { await api.deleteShopTransaction(txnId); loadData(); } catch(err) { alert('Delete Failed'); }
   };
 
@@ -289,16 +212,10 @@ function ShopDetails() {
     try { await api.updateShopTransaction(editForm.id, payload); alert('Updated!'); setEditModalOpen(false); loadData(); } catch (err) { alert('Update Failed'); }
   };
 
-  const openEditModal = (t) => {
-    const gross = parseFloat(t.gross_weight)||0, mc = parseFloat(t.making_charges)||0, cash = parseFloat(t.cash_amount)||0;
-    setEditForm({ id: t.id, description: t.description, gross: gross, wastage: t.wastage_percent||0, mc_rate: gross>0?(mc/gross).toFixed(2):0, manual_cash: (cash-mc).toFixed(2), type: t.pure_weight>0?'GOLD':'SILVER', pure: t.pure_weight>0?t.pure_weight:t.silver_weight, mc_total: mc, total_cash: cash });
-    setEditModalOpen(true);
-  };
-
-  const openSettleModal = async (t) => { setSelectedTxn(t); setPaymentHistory([]); try { const res = await api.getShopTransactionHistory(t.id); setPaymentHistory(res.data); } catch(err){} setSettleModalOpen(true); };
+  const openEditModal = (t) => { setEditForm({ id: t.id, description: t.description, gross: t.gross_weight, wastage: t.wastage_percent, mc_rate: 0, manual_cash: 0, type: t.pure_weight>0?'GOLD':'SILVER', pure: t.pure_weight||t.silver_weight, mc_total: t.making_charges, total_cash: t.cash_amount }); setEditModalOpen(true); };
   
+  const openSettleModal = async (t) => { setSelectedTxn(t); setSettleModalOpen(true); };
   const handleSettleSubmit = async () => {
-    if (!selectedTxn) return;
     let converted = 0; if (['CASH','BOTH'].includes(settleForm.mode) && settleForm.cash_val && settleForm.metal_rate) converted = (parseFloat(settleForm.cash_val) / parseFloat(settleForm.metal_rate)).toFixed(3);
     try { await api.settleShopItem({ transaction_id: selectedTxn.id, shop_id: id, payment_mode: settleForm.mode, gold_val: settleForm.gold_val, silver_val: settleForm.silver_val, cash_val: settleForm.cash_val, metal_rate: settleForm.metal_rate, converted_weight: converted }); alert("Recorded!"); setSettleModalOpen(false); loadData(); } catch (err) { alert("Error"); }
   };
@@ -352,8 +269,8 @@ function ShopDetails() {
          {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
-      {/* Transaction Lists */}
-      <div className="row g-4">
+      {/* Transaction Lists (Top) */}
+      <div className="row g-4 mb-4">
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
           <div className="table-responsive bg-light rounded" style={{maxHeight:'50vh'}}>
@@ -362,18 +279,16 @@ function ShopDetails() {
                 <tbody>
                     {borrowList.map(t => {
                         const { remGold, remSilver, isSettled } = getOutstanding(t);
-                        const isExpanded = expandedItems[t.id];
                         return (
                         <tr key={t.id} className={isSettled ? "text-muted" : "bg-white"}>
                             <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                            <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}><div className={isExpanded ? "" : "text-truncate"} style={{maxWidth:'120px'}} title="Click to expand">{t.description}</div></td>
+                            <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-danger bg-warning bg-opacity-10">
                                 {isSettled ? <i className="bi bi-check-all text-success"></i> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
                                 {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
                             </td>
                             <td className="text-end">
-                                {!isSettled && <button className="btn btn-link p-0 me-2 text-primary" onClick={() => openEditModal(t)} title="Edit"><i className="bi bi-pencil-square"></i></button>}
                                 <button className={`btn btn-sm py-0 me-1 ${isSettled?'btn-outline-secondary':'btn-outline-danger'}`} onClick={() => openSettleModal(t)}>{isSettled?'View':'Pay'}</button>
                                 <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><i className="bi bi-trash"></i></button>
                             </td>
@@ -392,18 +307,16 @@ function ShopDetails() {
                 <tbody>
                     {lendList.map(t => {
                         const { remGold, remSilver, isSettled } = getOutstanding(t);
-                        const isExpanded = expandedItems[t.id];
                         return (
                         <tr key={t.id} className={isSettled ? "text-muted" : "bg-white"}>
                             <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                            <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}><div className={isExpanded ? "" : "text-truncate"} style={{maxWidth:'120px'}} title="Click to expand">{t.description}</div></td>
+                            <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-success bg-success bg-opacity-10">
                                 {isSettled ? <i className="bi bi-check-all text-primary"></i> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
                                 {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
                             </td>
                             <td className="text-end">
-                                {!isSettled && <button className="btn btn-link p-0 me-2 text-primary" onClick={() => openEditModal(t)} title="Edit"><i className="bi bi-pencil-square"></i></button>}
                                 <button className={`btn btn-sm py-0 me-1 ${isSettled?'btn-outline-secondary':'btn-outline-success'}`} onClick={() => openSettleModal(t)}>{isSettled?'View':'Collect'}</button>
                                 <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><i className="bi bi-trash"></i></button>
                             </td>
@@ -415,31 +328,49 @@ function ShopDetails() {
         </div>
       </div>
 
-      <div className="card mt-4 shadow-sm">
-        <div className="card-header bg-dark text-white fw-bold">Transaction History (Combined)</div>
+      {/* --- NEW UNIFIED HISTORY TABLE (Bottom) --- */}
+      <div className="card shadow-sm">
+        <div className="card-header bg-dark text-white fw-bold">Detailed Audit Log (Transactions & Payments)</div>
         <div className="table-responsive" style={{maxHeight:'400px'}}>
             <table className="table table-sm table-striped small align-middle mb-0">
                 <thead className="table-light sticky-top">
-                    <tr><th>ID</th><th>Date</th><th>Type</th><th>Description</th><th className="text-end">Gold</th><th className="text-end">Silver</th><th className="text-end">Cash</th><th className="text-end">Action</th></tr>
+                    <tr><th>Date</th><th>Type</th><th>Description</th><th className="text-end">Gold</th><th className="text-end">Silver</th><th className="text-end">Cash</th><th className="text-end">Action</th></tr>
                 </thead>
                 <tbody>
-                    {transactions.map(t => (
-                        <tr key={t.id}>
-                            <td>{t.id}</td>
-                            <td>{new Date(t.created_at).toLocaleString()}</td>
-                            <td><span className={`badge ${t.type.includes('BORROW') ? 'bg-danger' : 'bg-success'}`}>{t.type.replace('_', ' ')}</span></td>
-                            <td>{t.description}</td>
-                            <td className="text-end">{t.pure_weight > 0 ? t.pure_weight : '-'}</td>
-                            <td className="text-end">{t.silver_weight > 0 ? t.silver_weight : '-'}</td>
-                            <td className="text-end">{t.cash_amount > 0 ? t.cash_amount : '-'}</td>
-                            <td className="text-end"><button className="btn btn-sm btn-outline-danger py-0" onClick={() => handleDeleteTxn(t.id)} title="Revert/Undo Transaction"><i className="bi bi-arrow-counterclockwise me-1"></i>Revert</button></td>
+                    {fullHistory.map(row => (
+                        <tr key={row.id} className={row.type === 'SETTLEMENT' ? 'table-info' : ''}>
+                            <td>{new Date(row.created_at).toLocaleString()}</td>
+                            <td>
+                                {row.type === 'SETTLEMENT' ? (
+                                    <span className="badge bg-info text-dark">SETTLEMENT</span>
+                                ) : (
+                                    <span className={`badge ${row.type.includes('BORROW') ? 'bg-danger' : 'bg-success'}`}>{row.type.replace('_', ' ')}</span>
+                                )}
+                            </td>
+                            <td>{row.description}</td>
+                            <td className="text-end fw-bold text-warning">
+                                {parseFloat(row.pure_weight) > 0 ? `${parseFloat(row.pure_weight).toFixed(3)}g` : '-'}
+                            </td>
+                            <td className="text-end fw-bold text-secondary">
+                                {parseFloat(row.silver_weight) > 0 ? `${parseFloat(row.silver_weight).toFixed(3)}g` : '-'}
+                            </td>
+                            <td className="text-end fw-bold text-success">
+                                {parseFloat(row.cash_amount) > 0 ? `₹${row.cash_amount}` : '-'}
+                            </td>
+                            <td className="text-end">
+                                {row.kind === 'TXN' && (
+                                    <button className="btn btn-sm btn-outline-secondary py-0" onClick={() => handleDeleteTxn(row.id)} title="Undo"><i className="bi bi-arrow-counterclockwise"></i></button>
+                                )}
+                            </td>
                         </tr>
                     ))}
+                    {fullHistory.length === 0 && <tr><td colSpan="7" className="text-center py-4">No History</td></tr>}
                 </tbody>
             </table>
         </div>
       </div>
 
+      {/* Modals for Add/Settle */}
       {activeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-xl">
@@ -495,8 +426,6 @@ function ShopDetails() {
                                     </small>
                                 )}
                             </td>
-                            
-                            {/* VISUAL TOGGLE */}
                             <td>
                                 <span 
                                     className={`badge cursor-pointer ${isSilver ? 'bg-secondary text-white' : 'bg-warning text-dark'}`}
@@ -506,33 +435,19 @@ function ShopDetails() {
                                     {isSilver ? 'SILVER' : 'GOLD'}
                                 </span>
                             </td>
-
                             <td><input className="form-control form-control-sm" type="number" value={row.gross} onChange={e => handleRowChange(i, 'gross', e.target.value)} /></td>
-                            
-                            {/* FIXED QUANTITY EDITING */}
                             <td>
                                 <div className="input-group input-group-sm">
-                                    <input 
-                                        className="form-control text-center" 
-                                        type="number" 
-                                        value={row.quantity} 
-                                        onChange={e => handleRowChange(i, 'quantity', e.target.value)}
-                                        // Disabled only if linked non-bulk item (optional, here just enabled always for ease)
-                                    />
+                                    <input className="form-control text-center" type="number" value={row.quantity} onChange={e => handleRowChange(i, 'quantity', e.target.value)} />
                                     {!row.inventory_id && (
-                                        <button className="btn btn-outline-secondary px-1" title="Toggle Bulk/Single" onClick={() => toggleStockType(i)}>
-                                            {row.stock_type==='BULK' ? 'B' : 'S'}
-                                        </button>
+                                        <button className="btn btn-outline-secondary px-1" title="Toggle Bulk/Single" onClick={() => toggleStockType(i)}>{row.stock_type==='BULK' ? 'B' : 'S'}</button>
                                     )}
                                 </div>
                             </td>
-
                             <td>
                                 <div className="input-group input-group-sm">
                                     <input className="form-control" type="number" value={row.wast} onChange={e => handleRowChange(i, 'wast', e.target.value)} />
-                                    <button className="btn btn-outline-secondary px-1" style={{fontSize:'0.7rem'}} 
-                                        onClick={() => handleRowChange(i, 'calcType', row.calcType === 'ADD' ? 'MUL' : 'ADD')}
-                                    >
+                                    <button className="btn btn-outline-secondary px-1" style={{fontSize:'0.7rem'}} onClick={() => handleRowChange(i, 'calcType', row.calcType === 'ADD' ? 'MUL' : 'ADD')}>
                                         {row.calcType==='ADD' ? '+ %' : 'x %'}
                                     </button>
                                 </div>
@@ -552,8 +467,6 @@ function ShopDetails() {
                     </div>
                   </div>
                 )}
-                
-                {/* ... (Legacy Settle Mode unchanged) ... */}
                 {formMode === 'SETTLE' && (
                   <div className="bg-light p-3 rounded">
                     <div className="mb-3 text-center">
@@ -569,7 +482,6 @@ function ShopDetails() {
                             <label className="form-check-label">{activeModal==='BORROW'?'Repayment (Decrease Debt)':'Collection (Decrease Credit)'}</label>
                         </div>
                     </div>
-                    
                     <input className="form-control mb-2" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
                     <div className="row g-2">
                        <div className="col-4"><label>Gold (g)</label><input type="number" className="form-control" value={form.settle_gold} onChange={e => setForm({...form, settle_gold: e.target.value})} /></div>
