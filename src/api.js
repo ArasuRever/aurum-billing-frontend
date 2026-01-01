@@ -3,124 +3,138 @@ import axios from 'axios';
 const API_URL = 'http://localhost:5000/api';
 const axiosInstance = axios.create({ baseURL: API_URL });
 
+// Interceptor to attach token to every request
+axiosInstance.interceptors.request.use((config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+}, (error) => Promise.reject(error));
+
 export const api = {
   axiosInstance,
 
+  // --- AUTH & USER MANAGEMENT (Updated) ---
+  getLoginConfig: () => axiosInstance.get(`/auth/login-config`),
+  login: (creds) => axiosInstance.post(`/auth/login`, creds),
+  setupAdmin: (creds) => axiosInstance.post(`/auth/setup`, creds),
+  
+  getUsers: () => axiosInstance.get(`/auth/users`),
+  addUser: (data) => axiosInstance.post(`/auth/users/add`, data),
+  deleteUser: (id) => axiosInstance.delete(`/auth/users/${id}`),
+  updateUser: (id, data) => axiosInstance.put(`/auth/users/${id}`, data),
+
   // --- VENDORS ---
-  addVendor: (data) => axios.post(`${API_URL}/vendors/add`, data),
-  searchVendor: (q) => axios.get(`${API_URL}/vendors/search?q=${q}`),
-  updateVendor: (id, data) => axios.put(`${API_URL}/vendors/${id}`, data),
-  getVendors: () => axios.get(`${API_URL}/vendors/list`),
-  addAgent: (formData) => axios.post(`${API_URL}/vendors/add-agent`, formData),
-  getVendorAgents: (id) => axios.get(`${API_URL}/vendors/${id}/agents`),
-  updateAgent: (id, formData) => axios.put(`${API_URL}/vendors/agent/${id}`, formData),
-  deleteAgent: (id) => axios.delete(`${API_URL}/vendors/agent/${id}`),
-  vendorTransaction: (data) => axios.post(`${API_URL}/vendors/transaction`, data),
-  getVendorTransactions: (id) => axios.get(`${API_URL}/vendors/${id}/transactions`),
-  getVendorSalesHistory: (id) => axios.get(`${API_URL}/vendors/${id}/sales-history`),
+  addVendor: (data) => axiosInstance.post(`/vendors/add`, data),
+  searchVendor: (q) => axiosInstance.get(`/vendors/search?q=${q}`),
+  updateVendor: (id, data) => axiosInstance.put(`/vendors/${id}`, data),
+  getVendors: () => axiosInstance.get(`/vendors/list`),
+  addAgent: (formData) => axiosInstance.post(`/vendors/add-agent`, formData),
+  getVendorAgents: (id) => axiosInstance.get(`/vendors/${id}/agents`),
+  updateAgent: (id, formData) => axiosInstance.put(`/vendors/agent/${id}`, formData),
+  deleteAgent: (id) => axiosInstance.delete(`/vendors/agent/${id}`),
+  vendorTransaction: (data) => axiosInstance.post(`/vendors/transaction`, data),
+  getVendorTransactions: (id) => axiosInstance.get(`/vendors/${id}/transactions`),
+  getVendorSalesHistory: (id) => axiosInstance.get(`/vendors/${id}/sales-history`),
 
   // --- INVENTORY ---
-  addInventory: (formData) => axios.post(`${API_URL}/inventory/add`, formData),
-  addBatchInventory: (data) => axios.post(`${API_URL}/inventory/batch-add`, data),
-  getInventory: () => axios.get(`${API_URL}/inventory/list`),
-  getVendorInventory: (id) => axios.get(`${API_URL}/vendors/${id}/inventory`), 
-  updateInventory: (id, data) => axios.put(`${API_URL}/inventory/update/${id}`, data),
-  deleteInventory: (id) => axios.delete(`${API_URL}/inventory/${id}`),
-  searchBillingItem: (q) => axios.get(`${API_URL}/inventory/search?q=${q}`), 
+  addInventory: (formData) => axiosInstance.post(`/inventory/add`, formData),
+  addBatchInventory: (data) => axiosInstance.post(`/inventory/batch-add`, data),
+  getInventory: () => axiosInstance.get(`/inventory/list`),
+  getVendorInventory: (id) => axiosInstance.get(`/vendors/${id}/inventory`), 
+  updateInventory: (id, data) => axiosInstance.put(`/inventory/update/${id}`, data),
+  deleteInventory: (id) => axiosInstance.delete(`/inventory/${id}`),
+  searchBillingItem: (q) => axiosInstance.get(`/inventory/search?q=${q}`), 
 
   // --- BILLING ---
-  createBill: (data) => axios.post(`${API_URL}/billing/create-bill`, data),
-  
-  // UPDATED: Now accepts restoreMode ('REVERT_DEBT' or 'TAKE_OWNERSHIP')
-  deleteBill: (id, restoreMode) => axios.delete(`${API_URL}/billing/delete/${id}?restore_mode=${restoreMode || 'REVERT_DEBT'}`),
-  
-  getBillHistory: (search) => axios.get(`${API_URL}/billing/history`, { params: { search } }),
-  addBalancePayment: (data) => axios.post(`${API_URL}/billing/add-payment`, data),
-  getInvoiceDetails: (invoiceId) => axios.get(`${API_URL}/billing/invoice/${invoiceId}`),
-  returnItem: (data) => axios.post(`${API_URL}/billing/return-item`, data),
-  processReturn: (data) => axios.post(`${API_URL}/billing/process-return`, data),
+  createBill: (data) => axiosInstance.post(`/billing/create-bill`, data),
+  deleteBill: (id, restoreMode) => axiosInstance.delete(`/billing/delete/${id}?restore_mode=${restoreMode || 'REVERT_DEBT'}`),
+  getBillHistory: (search) => axiosInstance.get(`/billing/history`, { params: { search } }),
+  addBalancePayment: (data) => axiosInstance.post(`/billing/add-payment`, data),
+  getInvoiceDetails: (invoiceId) => axiosInstance.get(`/billing/invoice/${invoiceId}`),
+  returnItem: (data) => axiosInstance.post(`/billing/return-item`, data),
+  processReturn: (data) => axiosInstance.post(`/billing/process-return`, data),
 
   // --- AUDIT ---
-  startAudit: (data) => axios.post(`${API_URL}/audit/start`, data),
-  scanAuditItem: (data) => axios.post(`${API_URL}/audit/scan`, data),
-  getAuditReport: (id) => axios.get(`${API_URL}/audit/${id}/report`),
-  finishAudit: (id) => axios.post(`${API_URL}/audit/${id}/finish`),
+  startAudit: (data) => axiosInstance.post(`/audit/start`, data),
+  scanAuditItem: (data) => axiosInstance.post(`/audit/scan`, data),
+  getAuditReport: (id) => axiosInstance.get(`/audit/${id}/report`),
+  finishAudit: (id) => axiosInstance.post(`/audit/${id}/finish`),
 
   // --- SHOPS ---
-  addShop: (data) => axios.post(`${API_URL}/shops/add`, data),
-  getShops: () => axios.get(`${API_URL}/shops/list?t=${Date.now()}`),
-  getShopDetails: (id) => axios.get(`${API_URL}/shops/${id}`),
-  updateShop: (id, data) => axios.put(`${API_URL}/shops/${id}`, data),
-  deleteShop: (id) => axios.delete(`${API_URL}/shops/${id}`),
-  shopTransaction: (data) => axios.post(`${API_URL}/shops/transaction`, data),
-  deleteShopTransaction: (id) => axios.delete(`${API_URL}/shops/transaction/${id}`),
-  settleShopTransaction: (id) => axios.post(`${API_URL}/shops/settle`, { transaction_id: id }),
-  settleShopItem: (data) => axios.post(`${API_URL}/shops/settle-item`, data),
-  getShopTransactionHistory: (id) => axios.get(`${API_URL}/shops/payment-history/${id}`),
-  updateShopTransaction: (id, data) => axios.put(`${API_URL}/shops/transaction/${id}`, data),
+  addShop: (data) => axiosInstance.post(`/shops/add`, data),
+  getShops: () => axiosInstance.get(`/shops/list?t=${Date.now()}`),
+  getShopDetails: (id) => axiosInstance.get(`/shops/${id}`),
+  updateShop: (id, data) => axiosInstance.put(`/shops/${id}`, data),
+  deleteShop: (id) => axiosInstance.delete(`/shops/${id}`),
+  shopTransaction: (data) => axiosInstance.post(`/shops/transaction`, data),
+  deleteShopTransaction: (id) => axiosInstance.delete(`/shops/transaction/${id}`),
+  settleShopTransaction: (id) => axiosInstance.post(`/shops/settle`, { transaction_id: id }),
+  settleShopItem: (data) => axiosInstance.post(`/shops/settle-item`, data),
+  getShopTransactionHistory: (id) => axiosInstance.get(`/shops/payment-history/${id}`),
+  updateShopTransaction: (id, data) => axiosInstance.put(`/shops/transaction/${id}`, data),
 
   // --- CUSTOMERS ---
-  searchCustomer: (query) => axios.get(`${API_URL}/customers/search?q=${query}`),
-  getCustomers: () => axios.get(`${API_URL}/customers/list`),
-  getCustomerDetails: (phone) => axios.get(`${API_URL}/customers/details/${phone}`),
-  addCustomer: (data) => axios.post(`${API_URL}/customers/add`, data),
-  updateCustomer: (id, data) => axios.put(`${API_URL}/customers/update/${id}`, data),
-  getRecycleBin: () => axios.get(`${API_URL}/customers/recycle-bin`),
-  softDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/soft-delete/${id}`),
-  restoreCustomer: (id) => axios.put(`${API_URL}/customers/restore/${id}`),
-  permanentDeleteCustomer: (id) => axios.delete(`${API_URL}/customers/permanent/${id}`),
+  searchCustomer: (query) => axiosInstance.get(`/customers/search?q=${query}`),
+  getCustomers: () => axiosInstance.get(`/customers/list`),
+  getCustomerDetails: (phone) => axiosInstance.get(`/customers/details/${phone}`),
+  addCustomer: (data) => axiosInstance.post(`/customers/add`, data),
+  updateCustomer: (id, data) => axiosInstance.put(`/customers/update/${id}`, data),
+  getRecycleBin: () => axiosInstance.get(`/customers/recycle-bin`),
+  softDeleteCustomer: (id) => axiosInstance.delete(`/customers/soft-delete/${id}`),
+  restoreCustomer: (id) => axiosInstance.put(`/customers/restore/${id}`),
+  permanentDeleteCustomer: (id) => axiosInstance.delete(`/customers/permanent/${id}`),
 
   // --- SETTINGS ---
-  getDailyRates: () => axios.get(`${API_URL}/settings/rates`),
-  updateDailyRate: (data) => axios.post(`${API_URL}/settings/rates`, data),
-  getProductTypes: () => axios.get(`${API_URL}/settings/types`),
-  addProductType: (data) => axios.post(`${API_URL}/settings/types`, data),
-  updateProductType: (id, data) => axios.put(`${API_URL}/settings/types/${id}`, data),
-  deleteProductType: (id) => axios.delete(`${API_URL}/settings/types/${id}`),
-  getMasterItems: () => axios.get(`${API_URL}/settings/items`),
-  addMasterItemsBulk: (data) => axios.post(`${API_URL}/settings/items/bulk`, data), 
-  updateMasterItem: (id, data) => axios.put(`${API_URL}/settings/items/${id}`, data), 
-  deleteMasterItem: (id) => axios.delete(`${API_URL}/settings/items/${id}`),
-
-  // --- BUSINESS SETTINGS ---
-  getBusinessSettings: () => axios.get(`${API_URL}/settings/business`),
-  saveBusinessSettings: (formData) => axios.post(`${API_URL}/settings/business`, formData, {
+  getDailyRates: () => axiosInstance.get(`/settings/rates`),
+  updateDailyRate: (data) => axiosInstance.post(`/settings/rates`, data),
+  getProductTypes: () => axiosInstance.get(`/settings/types`),
+  addProductType: (data) => axiosInstance.post(`/settings/types`, data),
+  updateProductType: (id, data) => axiosInstance.put(`/settings/types/${id}`, data),
+  deleteProductType: (id) => axiosInstance.delete(`/settings/types/${id}`),
+  getMasterItems: () => axiosInstance.get(`/settings/items`),
+  addMasterItemsBulk: (data) => axiosInstance.post(`/settings/items/bulk`, data), 
+  updateMasterItem: (id, data) => axiosInstance.put(`/settings/items/${id}`, data), 
+  deleteMasterItem: (id) => axiosInstance.delete(`/settings/items/${id}`),
+  getBusinessSettings: () => axiosInstance.get(`/settings/business`),
+  saveBusinessSettings: (formData) => axiosInstance.post(`/settings/business`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
 
   // --- LEDGER ---
-  getLedgerStats: () => axios.get(`${API_URL}/ledger/stats`),
-  getLedgerHistory: (search, date) => axios.get(`${API_URL}/ledger/history`, { params: { search, date } }),
-  addExpense: (data) => axios.post(`${API_URL}/ledger/expense`, data),
-  adjustBalance: (data) => axios.post(`${API_URL}/ledger/adjust`, data),
+  getLedgerStats: () => axiosInstance.get(`/ledger/stats`),
+  getLedgerHistory: (search, date) => axiosInstance.get(`/ledger/history`, { params: { search, date } }),
+  addExpense: (data) => axiosInstance.post(`/ledger/expense`, data),
+  adjustBalance: (data) => axiosInstance.post(`/ledger/adjust`, data),
 
   // --- OLD METAL ---
-  getOldMetalStats: () => axios.get(`${API_URL}/old-metal/stats`),
-  getOldMetalList: () => axios.get(`${API_URL}/old-metal/list`),
-  addOldMetalPurchase: (data) => axios.post(`${API_URL}/old-metal/purchase`, data),
-  deleteOldMetal: (id) => axios.delete(`${API_URL}/old-metal/${id}`),
+  getOldMetalStats: () => axiosInstance.get(`/old-metal/stats`),
+  getOldMetalList: () => axiosInstance.get(`/old-metal/list`),
+  addOldMetalPurchase: (data) => axiosInstance.post(`/old-metal/purchase`, data),
+  deleteOldMetal: (id) => axiosInstance.delete(`/old-metal/${id}`),
   
   // --- REFINERY ---
-  getRefineryBatches: () => axios.get(`${API_URL}/refinery/batches`),
-  getPendingScrap: (metalType) => axios.get(`${API_URL}/refinery/pending-scrap?metal_type=${metalType}`),
-  createRefineryBatch: (data) => axios.post(`${API_URL}/refinery/create-batch`, data),
-  getBatchItems: (id) => axios.get(`${API_URL}/refinery/batch/${id}/items`),
-  receiveRefinedGold: (formData) => axios.post(`${API_URL}/refinery/receive-refined`, formData),
-  useRefinedStock: (data) => axios.post(`${API_URL}/refinery/use-stock`, data),
+  getRefineryBatches: () => axiosInstance.get(`/refinery/batches`),
+  getPendingScrap: (metalType) => axiosInstance.get(`/refinery/pending-scrap?metal_type=${metalType}`),
+  createRefineryBatch: (data) => axiosInstance.post(`/refinery/create-batch`, data),
+  getBatchItems: (id) => axiosInstance.get(`/refinery/batch/${id}/items`),
+  receiveRefinedGold: (formData) => axiosInstance.post(`/refinery/receive-refined`, formData),
+  useRefinedStock: (data) => axiosInstance.post(`/refinery/use-stock`, data),
 
-  // --- EXTERNAL GST BILLING ---
-  getGstHistory: () => axios.get(`${API_URL}/gst/history`),
-  getGstBill: (id) => axios.get(`${API_URL}/gst/${id}`),
-  createGstBill: (data) => axios.post(`${API_URL}/gst/create`, data),
-  updateGstBill: (id, data) => axios.put(`${API_URL}/gst/update/${id}`, data),
-  deleteGstBill: (id) => axios.delete(`${API_URL}/gst/${id}`),
+  // --- GST BILLING ---
+  getGstHistory: () => axiosInstance.get(`/gst/history`),
+  getGstBill: (id) => axiosInstance.get(`/gst/${id}`),
+  createGstBill: (data) => axiosInstance.post(`/gst/create`, data),
+  updateGstBill: (id, data) => axiosInstance.put(`/gst/update/${id}`, data),
+  deleteGstBill: (id) => axiosInstance.delete(`/gst/${id}`),
 
   // --- CHIT SCHEMES ---
-  createChitPlan: (data) => axios.post(`${API_URL}/chits/create`, data),
-  getActiveChitCustomers: () => axios.get(`${API_URL}/chits/active-customers`), // NEW
-  getCustomerChits: (customerId) => axios.get(`${API_URL}/chits/customer/${customerId}`),
-  getChitDetails: (id) => axios.get(`${API_URL}/chits/details/${id}`),
-  payChitInstallment: (data) => axios.post(`${API_URL}/chits/pay`, data),
-  addChitBonus: (id) => axios.post(`${API_URL}/chits/add-bonus/${id}`),
-  closeChitPlan: (id) => axios.post(`${API_URL}/chits/close/${id}`),
+  createChitPlan: (data) => axiosInstance.post(`/chits/create`, data),
+  getActiveChitCustomers: () => axiosInstance.get(`/chits/active-customers`),
+  getCustomerChits: (customerId) => axiosInstance.get(`/chits/customer/${customerId}`),
+  getChitDetails: (id) => axiosInstance.get(`/chits/details/${id}`),
+  payChitInstallment: (data) => axiosInstance.post(`/chits/pay`, data),
+  addChitBonus: (id) => axiosInstance.post(`/chits/add-bonus/${id}`),
+  closeChitPlan: (id) => axiosInstance.post(`/chits/close/${id}`),
 };

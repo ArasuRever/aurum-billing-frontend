@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import { BusinessProvider } from './context/BusinessContext';
+import Login from './pages/Login'; 
 
 // Page Imports
 import VendorManager from './pages/VendorManager';
@@ -22,18 +23,41 @@ import BulkStockEntry from './pages/BulkStockEntry';
 import ExternalGST from './pages/ExternalGST';
 import Dashboard from './pages/Dashboard';
 import StockAudit from './pages/StockAudit';
-import ChitManager from './pages/ChitManager'; // NEW
+import ChitManager from './pages/ChitManager';
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('authToken'));
+
+  const handleLogin = (newToken, user) => {
+    localStorage.setItem('authToken', newToken);
+    localStorage.setItem('user', JSON.stringify(user));
+    setToken(newToken);
+    
+    // --- FIX: FORCE REDIRECT TO DASHBOARD ---
+    // This resets the URL to '/' so the Router loads the Dashboard
+    window.history.replaceState(null, '', '/'); 
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    setToken(null);
+    // Optional: Reset URL on logout too
+    window.history.replaceState(null, '', '/');
+  };
+
+  if (!token) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <BusinessProvider>
       <Router>
         <div className="d-flex flex-column min-vh-100 bg-light">
-          <Navbar />
+          <Navbar onLogout={handleLogout} />
           <div className="container-fluid px-4">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              
               <Route path="/billing" element={<Billing />} />
               <Route path="/gst-filing" element={<ExternalGST />} />
               <Route path="/vendors" element={<VendorManager />} />
