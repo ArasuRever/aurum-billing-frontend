@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 
 function RefineryManager() {
-  const [activeTab, setActiveTab] = useState('pending');
   const [loading, setLoading] = useState(false);
+  const [activeMetal, setActiveMetal] = useState('GOLD'); // Global Metal Toggle
   
   // Data
   const [pendingScrap, setPendingScrap] = useState([]);
@@ -11,7 +11,7 @@ function RefineryManager() {
   const [vendors, setVendors] = useState([]);
   const [shops, setShops] = useState([]);
 
-  // Modals
+  // Modals & Selection
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [showUseModal, setShowUseModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -19,7 +19,12 @@ function RefineryManager() {
   const [selectedBatch, setSelectedBatch] = useState(null);
 
   // Forms
-  const [sendForm, setSendForm] = useState({ metal: 'GOLD', selectedIds: [], manualWeight: '' });
+  const [sendForm, setSendForm] = useState({ 
+      selectedIds: [], 
+      manualWeight: '',
+      batchName: '' 
+  });
+  
   const [receiveForm, setReceiveForm] = useState({ refined_weight: '', touch: '99.50', pure_weight: '' });
   const [useForm, setUseForm] = useState({ 
       item_name: '', use_weight: '', 
@@ -27,41 +32,34 @@ function RefineryManager() {
       recipient_id: '' 
   });
 
+  // Initial Load & Metal Change
   useEffect(() => { 
       loadData(); 
       api.getVendors().then(res => setVendors(res.data)).catch(console.error);
       api.getShops().then(res => setShops(res.data)).catch(console.error);
-  }, [activeTab]);
-
-  // --- FIX 1: Auto-reload when Metal Type changes ---
-  useEffect(() => {
-      if (activeTab === 'pending') {
-          loadData();
-          // Clear selection to prevent mixing metals
-          setSendForm(prev => ({ ...prev, selectedIds: [] }));
-      }
-  }, [sendForm.metal]);
+  }, [activeMetal]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-        if (activeTab === 'pending') {
-            const res = await api.getPendingScrap(sendForm.metal);
-            setPendingScrap(res.data);
-        } else {
-            const res = await api.getRefineryBatches();
-            setRefineryBatches(res.data);
-        }
+        const [scrapRes, batchRes] = await Promise.all([
+            api.getPendingScrap(activeMetal),
+            api.getRefineryBatches()
+        ]);
+        setPendingScrap(scrapRes.data);
+        setRefineryBatches(batchRes.data.filter(b => b.metal_type === activeMetal));
+        setSendForm(prev => ({ ...prev, selectedIds: [] })); 
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
 
+  // --- Logic Helpers ---
+
   const handleSelectAll = (e) => {
-      if (e.target.checked) {
-          setSendForm(prev => ({ ...prev, selectedIds: pendingScrap.map(i => i.id) }));
-      } else {
-          setSendForm(prev => ({ ...prev, selectedIds: [] }));
-      }
+      setSendForm(prev => ({ 
+          ...prev, 
+          selectedIds: e.target.checked ? pendingScrap.map(i => i.id) : [] 
+      }));
   };
 
   const toggleSelect = (id) => {
@@ -80,22 +78,32 @@ function RefineryManager() {
       return (listSum + manual).toFixed(3);
   };
 
+  // Filter Vendors based on Active Metal (Gold/Silver)
+  const getFilteredVendors = () => {
+      if (!selectedBatch) return vendors;
+      return vendors.filter(v => 
+          !v.deals_in || v.deals_in.includes(selectedBatch.metal_type) || v.deals_in === 'BOTH'
+      );
+  };
+
+  // --- Actions ---
+
   const createBatch = async () => {
-      const { selectedIds, manualWeight, metal } = sendForm;
+      const { selectedIds, manualWeight, batchName } = sendForm;
       if (selectedIds.length === 0 && !manualWeight) return alert("Select items or enter manual weight.");
       
-      if (!window.confirm(`Create ${metal} batch? Total: ${calculateTotal()}g`)) return;
+      if (!window.confirm(`Create ${activeMetal} batch? Total: ${calculateTotal()}g`)) return;
 
       try {
-          // --- FIX 2: Correct Payload Keys (item_ids instead of selected_item_ids) ---
           await api.createRefineryBatch({ 
-              metal_type: metal, 
+              metal_type: activeMetal, 
               item_ids: selectedIds, 
-              manual_weight: manualWeight 
+              manual_weight: manualWeight,
+              batch_name: batchName 
           });
           
           alert("Batch Sent to Refinery!");
-          setSendForm(prev => ({ ...prev, selectedIds: [], manualWeight: '' }));
+          setSendForm(prev => ({ ...prev, selectedIds: [], manualWeight: '', batchName: '' }));
           loadData();
       } catch(err) { alert(err.message); }
   };
@@ -107,17 +115,20 @@ function RefineryManager() {
       setReceiveForm({ ...receiveForm, touch: touchVal, pure_weight: pure });
   };
 
-  const receiveGold = async () => {
+  const receiveRefined = async () => {
+      if(!selectedBatch) return;
       try {
           await api.receiveRefinedGold({ 
               batch_id: selectedBatch.id, 
               refined_weight: receiveForm.refined_weight, 
               touch: receiveForm.touch
           });
-          alert("Gold Received!");
+          alert(`${selectedBatch.metal_type} Received Successfully!`);
           setShowReceiveModal(false);
           loadData();
-      } catch(err) { alert(err.message); }
+      } catch(err) { 
+          alert("Update Failed: " + (err.response?.data?.error || err.message)); 
+      }
   };
 
   const useStock = async () => {
@@ -130,7 +141,7 @@ function RefineryManager() {
               transfer_to: useForm.transfer_to,
               recipient_id: useForm.recipient_id
           });
-          alert("Stock Used / Transferred!");
+          alert("Transaction Logged & Stock Updated!");
           setShowUseModal(false);
           loadData();
       } catch(err) { alert(err.message); }
@@ -145,163 +156,363 @@ function RefineryManager() {
       } catch (err) { alert(err.message); }
   };
 
+  // Stats Calculation
+  const totalPendingWeight = pendingScrap.reduce((sum, i) => sum + parseFloat(i.gross_weight || i.net_weight), 0).toFixed(3);
+  const totalRefinedStock = refineryBatches
+    .filter(b => b.status === 'REFINED')
+    .reduce((sum, b) => sum + (parseFloat(b.pure_weight) - (parseFloat(b.used_weight)||0)), 0)
+    .toFixed(3);
+
+  // Dynamic Calculation for Modal
+  const getCalculationDisplay = () => {
+      if (!selectedBatch) return null;
+      const available = parseFloat(selectedBatch.pure_weight) - (parseFloat(selectedBatch.used_weight)||0);
+      const entering = parseFloat(useForm.use_weight) || 0;
+      const remaining = available - entering;
+      
+      return (
+          <div className={`alert p-2 small border ${remaining < 0 ? 'alert-danger' : 'alert-success'}`}>
+              <div className="d-flex justify-content-between">
+                  <span>Available: <strong>{available.toFixed(3)}</strong></span>
+                  <span>- Use: <strong>{entering.toFixed(3)}</strong></span>
+                  <span className="fw-bold border-start ps-2">Remaining: {remaining.toFixed(3)} g</span>
+              </div>
+          </div>
+      );
+  };
+
   return (
-    <div className="container-fluid py-4">
+    <div className="container-fluid py-4 bg-light" style={{minHeight:'100vh'}}>
+      
+      {/* HEADER & METAL TOGGLE */}
       <div className="d-flex justify-content-between align-items-center mb-4">
-          <h4 className="fw-bold text-dark"><i className="bi bi-fire me-2 text-danger"></i>Refinery Manager</h4>
-          <div className="btn-group">
-              <button className={`btn fw-bold ${activeTab==='pending'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setActiveTab('pending')}>Pending Scrap</button>
-              <button className={`btn fw-bold ${activeTab==='batches'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setActiveTab('batches')}>Batches History</button>
+          <div>
+            <h4 className="fw-bold text-dark mb-0"><i className="bi bi-fire me-2 text-danger"></i>Refinery Manager</h4>
+            <small className="text-muted">Manage scrap dispatch, refining, and pure metal recovery.</small>
+          </div>
+
+          <div className="bg-white p-1 rounded-pill shadow-sm border d-flex">
+              <button 
+                  className={`btn rounded-pill px-4 fw-bold ${activeMetal==='GOLD'?'btn-warning text-dark':'btn-white text-muted'}`} 
+                  onClick={()=>setActiveMetal('GOLD')}
+              >
+                  GOLD
+              </button>
+              <button 
+                  className={`btn rounded-pill px-4 fw-bold ${activeMetal==='SILVER'?'btn-secondary text-white':'btn-white text-muted'}`} 
+                  onClick={()=>setActiveMetal('SILVER')}
+              >
+                  SILVER
+              </button>
           </div>
       </div>
 
-      {activeTab === 'pending' && (
-          <div className="card shadow-sm border-0">
-              <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                  <div className="btn-group">
-                      <button className={`btn btn-sm ${sendForm.metal==='GOLD'?'btn-warning':'btn-outline-secondary'}`} onClick={()=>setSendForm({...sendForm, metal: 'GOLD'})}>GOLD</button>
-                      <button className={`btn btn-sm ${sendForm.metal==='SILVER'?'btn-secondary':'btn-outline-secondary'}`} onClick={()=>setSendForm({...sendForm, metal: 'SILVER'})}>SILVER</button>
-                  </div>
-                  <div className="d-flex align-items-center gap-3">
-                      <div className="input-group input-group-sm">
-                          <span className="input-group-text">Manual Wt</span>
-                          <input type="number" className="form-control" style={{maxWidth:'80px'}} placeholder="0.00" value={sendForm.manualWeight} onChange={e => setSendForm({...sendForm, manualWeight: e.target.value})} />
+      {/* STATS OVERVIEW */}
+      <div className="row g-3 mb-4">
+          <div className="col-md-6 col-lg-3">
+              <div className="card border-0 shadow-sm h-100">
+                  <div className="card-body d-flex align-items-center">
+                      <div className={`p-3 rounded-circle me-3 ${activeMetal==='GOLD'?'bg-warning-subtle text-warning':'bg-secondary-subtle text-secondary'}`}>
+                          <i className="bi bi-recycle fs-4"></i>
                       </div>
-                      <h5 className="m-0">Total: <strong>{calculateTotal()} g</strong></h5>
-                      <button className="btn btn-danger fw-bold" onClick={createBatch}>Send to Refinery <i className="bi bi-arrow-right"></i></button>
+                      <div>
+                          <h6 className="text-muted mb-0 small fw-bold">PENDING SCRAP</h6>
+                          <h4 className="fw-bold mb-0">{totalPendingWeight} <span className="fs-6 text-muted">g</span></h4>
+                      </div>
                   </div>
               </div>
-              <div className="table-responsive">
-                  <table className="table table-hover align-middle mb-0">
-                      <thead className="table-light">
-                          <tr>
-                              <th style={{width:'40px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} /></th>
-                              <th>Item Name</th><th>Gross Wt</th><th>Net Wt</th><th>Status</th>
-                          </tr>
-                      </thead>
-                      <tbody>
-                          {pendingScrap.length === 0 && <tr><td colSpan="5" className="text-center py-4 text-muted">No pending scrap found.</td></tr>}
-                          {pendingScrap.map(item => (
-                              <tr key={item.id} className={sendForm.selectedIds.includes(item.id) ? 'table-warning' : ''}>
-                                  <td className="text-center"><input type="checkbox" className="form-check-input" checked={sendForm.selectedIds.includes(item.id)} onChange={()=>toggleSelect(item.id)} /></td>
-                                  <td>{item.item_name}</td>
-                                  <td className="fw-bold">{item.gross_weight} g</td>
-                                  <td className="text-muted small">{item.net_weight} g</td>
-                                  <td><span className="badge bg-success">AVAILABLE</span></td>
+          </div>
+          <div className="col-md-6 col-lg-3">
+              <div className="card border-0 shadow-sm h-100">
+                  <div className="card-body d-flex align-items-center">
+                      <div className="p-3 rounded-circle me-3 bg-success-subtle text-success">
+                          <i className="bi bi-safe fs-4"></i>
+                      </div>
+                      <div>
+                          <h6 className="text-muted mb-0 small fw-bold">REFINED STOCK AVAILABLE</h6>
+                          <h4 className="fw-bold mb-0 text-success">{totalRefinedStock} <span className="fs-6 text-muted">g</span></h4>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      {/* MAIN CONTENT SPLIT */}
+      <div className="row g-4">
+          
+          {/* LEFT: PENDING SCRAP & CREATE BATCH (Narrower Col) */}
+          <div className="col-xl-4 col-lg-5">
+              <div className="card border-0 shadow-sm h-100">
+                  <div className="card-header bg-white py-3 border-0">
+                      <h6 className="fw-bold mb-3"><i className="bi bi-list-check me-2"></i>Select Items to Dispatch</h6>
+                      
+                      {/* BATCH CREATION FORM */}
+                      <div className="bg-light p-3 rounded mb-3 border">
+                          <div className="mb-2">
+                            <label className="small fw-bold text-muted">Batch Name (Optional)</label>
+                            <input 
+                                type="text" 
+                                className="form-control form-control-sm" 
+                                placeholder={`e.g. ${activeMetal} Scrap Batch`} 
+                                value={sendForm.batchName} 
+                                onChange={e => setSendForm({...sendForm, batchName: e.target.value})} 
+                            />
+                          </div>
+                          <div className="d-flex gap-2">
+                              <div className="flex-grow-1">
+                                  <label className="small fw-bold text-muted">Manual Weight (g)</label>
+                                  <input 
+                                      type="number" 
+                                      className="form-control form-control-sm" 
+                                      placeholder="0.00" 
+                                      value={sendForm.manualWeight} 
+                                      onChange={e => setSendForm({...sendForm, manualWeight: e.target.value})} 
+                                  />
+                              </div>
+                              <div className="align-self-end text-end">
+                                  <small className="d-block text-muted mb-1">Total Sending</small>
+                                  <h5 className="fw-bold mb-0">{calculateTotal()} g</h5>
+                              </div>
+                          </div>
+                          <button className="btn btn-dark w-100 mt-3 fw-bold btn-sm" onClick={createBatch}>
+                              <i className="bi bi-send me-2"></i>Send to Refinery
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="table-responsive flex-grow-1">
+                      <table className="table table-hover align-middle mb-0 small">
+                          <thead className="table-light sticky-top">
+                              <tr>
+                                  <th style={{width:'40px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} /></th>
+                                  <th>Item Name</th>
+                                  <th className="text-end">Gross</th>
+                                  <th className="text-end">Net</th> {/* ADDED BACK */}
+                                  <th className="text-center">Status</th>
                               </tr>
-                          ))}
-                      </tbody>
-                  </table>
+                          </thead>
+                          <tbody>
+                              {pendingScrap.length === 0 && <tr><td colSpan="5" className="text-center py-5 text-muted">No pending items available.</td></tr>}
+                              {pendingScrap.map(item => (
+                                  <tr key={item.id} className={sendForm.selectedIds.includes(item.id) ? 'table-active' : ''}>
+                                      <td className="text-center"><input type="checkbox" className="form-check-input" checked={sendForm.selectedIds.includes(item.id)} onChange={()=>toggleSelect(item.id)} /></td>
+                                      <td>{item.item_name}</td>
+                                      <td className="text-end fw-bold">{item.gross_weight}</td>
+                                      <td className="text-end text-muted">{item.net_weight}</td> {/* ADDED BACK */}
+                                      <td className="text-center"><span className="badge bg-secondary-subtle text-secondary border">Ready</span></td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
+                  </div>
               </div>
           </div>
-      )}
 
-      {activeTab === 'batches' && (
-        <div className="row g-4">
-           {refineryBatches.map(batch => (
-             <div className="col-md-6 col-xl-4" key={batch.id}>
-               <div className={`card h-100 border-top-4 shadow-sm ${batch.status==='COMPLETED'?'border-success':'border-warning'}`}>
-                  <div className="card-body">
-                     <div className="d-flex justify-content-between mb-2">
-                        <span className="badge bg-secondary">{batch.batch_no}</span>
-                        <span className={`badge ${batch.status==='SENT'?'bg-warning text-dark': batch.status==='REFINED'?'bg-primary':'bg-success'}`}>{batch.status}</span>
-                     </div>
-                     <div className="d-flex justify-content-between mb-1"><span className="text-muted small">Sent Gross:</span><span className="fw-bold">{batch.gross_weight} g</span></div>
-                     <div className="text-center mb-3">
-                         <button className="btn btn-link btn-sm text-decoration-none" onClick={() => handleViewHistory(batch)}>
-                             <i className="bi bi-eye me-1"></i> View {batch.items_count} Items
-                         </button>
-                     </div>
-                     {batch.status !== 'SENT' && (
-                        <div className="bg-light p-2 rounded mb-3 small">
-                           <div className="d-flex justify-content-between"><span>Refined:</span> <strong>{batch.refined_weight} g</strong></div>
-                           <div className="d-flex justify-content-between"><span>Touch:</span> <strong>{batch.touch}%</strong></div>
-                           <div className="d-flex justify-content-between"><span>Pure:</span> <strong>{parseFloat(batch.pure_weight).toFixed(3)} g</strong></div>
-                           <div className="d-flex justify-content-between text-success"><span>Available:</span> <strong>{(parseFloat(batch.pure_weight) - (parseFloat(batch.used_weight)||0)).toFixed(3)} g</strong></div>
-                        </div>
-                     )}
-                     {batch.status === 'SENT' && <button className="btn btn-outline-primary w-100" onClick={()=>{setSelectedBatch(batch); setShowReceiveModal(true);}}>Receive Gold</button>}
-                     {batch.status === 'REFINED' && <button className="btn btn-outline-success w-100" onClick={()=>{setSelectedBatch(batch); setShowUseModal(true);}}>Transfer / Use Stock</button>}
-                  </div>
-               </div>
-             </div>
-           ))}
-        </div>
-      )}
+          {/* RIGHT: BATCHES & ACTIONS (Wider Col + Grid System) */}
+          <div className="col-xl-8 col-lg-7">
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                  <h6 className="fw-bold mb-0 text-muted">Active & Past Batches</h6>
+                  <button className="btn btn-sm btn-outline-secondary" onClick={loadData}><i className="bi bi-arrow-clockwise"></i> Refresh</button>
+              </div>
 
+              {/* GRID SYSTEM: 2 Columns on Large Screens */}
+              <div className="row row-cols-1 row-cols-md-2 g-3">
+                  {refineryBatches.length === 0 && <div className="col-12 text-center text-muted py-5">No batch history found for {activeMetal}.</div>}
+                  
+                  {refineryBatches.map(batch => (
+                     <div className="col" key={batch.id}>
+                       <div className="card border-0 shadow-sm h-100">
+                          <div className="card-body p-3 d-flex flex-column">
+                             <div className="d-flex justify-content-between align-items-start mb-2">
+                                <div className="d-flex align-items-center">
+                                    <div className={`rounded p-2 me-3 ${batch.status==='COMPLETED'?'bg-success text-white': batch.status==='REFINED'?'bg-primary text-white':'bg-warning text-dark'}`}>
+                                        <i className={`bi ${batch.status==='SENT'?'bi-truck':'bi-check-lg'}`}></i>
+                                    </div>
+                                    <div>
+                                        <h6 className="fw-bold mb-0 text-truncate" style={{maxWidth:'150px'}} title={batch.batch_no}>{batch.batch_no}</h6>
+                                        <small className="text-muted" style={{fontSize:'0.75rem'}}>{new Date(batch.sent_date).toLocaleDateString()}</small>
+                                    </div>
+                                </div>
+                                <span className={`badge ${batch.status==='SENT'?'bg-warning text-dark': batch.status==='REFINED'?'bg-primary':'bg-success'}`}>{batch.status}</span>
+                             </div>
+
+                             <div className="row g-2 mb-3 small bg-light p-2 rounded mx-0 mt-auto">
+                                 <div className="col-4 border-end">
+                                     <span className="text-muted d-block" style={{fontSize:'0.7rem'}}>SENT</span>
+                                     <strong className="text-dark">{batch.gross_weight} g</strong>
+                                 </div>
+                                 <div className="col-4 border-end text-center">
+                                     <span className="text-muted d-block" style={{fontSize:'0.7rem'}}>PURE</span>
+                                     <strong className={batch.pure_weight ? "text-success":"text-muted"}>{batch.pure_weight || '--'} g</strong>
+                                 </div>
+                                 <div className="col-4 text-end">
+                                     <span className="text-muted d-block" style={{fontSize:'0.7rem'}}>BALANCE</span>
+                                     <strong className="text-primary">{(parseFloat(batch.pure_weight || 0) - (parseFloat(batch.used_weight)||0)).toFixed(3)} g</strong>
+                                 </div>
+                             </div>
+
+                             <div className="d-flex gap-2">
+                                 <button className="btn btn-sm btn-outline-secondary flex-fill" onClick={() => handleViewHistory(batch)} title="View Sent Items">
+                                     <i className="bi bi-card-list"></i>
+                                 </button>
+                                 
+                                 {batch.status === 'SENT' && (
+                                     <button className="btn btn-sm btn-primary flex-fill fw-bold" onClick={()=>{setSelectedBatch(batch); setShowReceiveModal(true);}}>
+                                         <i className="bi bi-box-arrow-in-down me-1"></i>Receive
+                                     </button>
+                                 )}
+                                 
+                                 {batch.status === 'REFINED' && (
+                                     <button className="btn btn-sm btn-success flex-fill fw-bold" onClick={()=>{setSelectedBatch(batch); setShowUseModal(true);}}>
+                                        <i className="bi bi-arrow-right-circle me-1"></i>Use Stock
+                                     </button>
+                                 )}
+                             </div>
+                          </div>
+                       </div>
+                     </div>
+                   ))}
+              </div>
+          </div>
+      </div>
+
+      {/* --- MODALS --- */}
+      
       {/* RECEIVE MODAL */}
-      {showReceiveModal && (
+      {showReceiveModal && selectedBatch && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-              <div className="modal-dialog">
-                  <div className="modal-content">
-                      <div className="modal-header"><h5 className="modal-title">Receive Gold</h5><button className="btn-close" onClick={()=>setShowReceiveModal(false)}></button></div>
+              <div className="modal-dialog modal-dialog-centered">
+                  <div className="modal-content shadow border-0">
+                      <div className="modal-header bg-primary text-white">
+                          <h5 className="modal-title fs-6">Receive {selectedBatch.metal_type} Report</h5>
+                          <button className="btn-close btn-close-white" onClick={()=>setShowReceiveModal(false)}></button>
+                      </div>
                       <div className="modal-body">
-                          <div className="mb-3"><label>Total Refined Wt</label><input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, refined_weight:e.target.value})} /></div>
-                          <div className="mb-3"><label>Touch (%)</label><input className="form-control" type="number" placeholder="99.50" value={receiveForm.touch} onChange={e=>handleTouchChange(e.target.value)} /></div>
-                          <div className="mb-3"><label>Calculated Pure Wt</label><input className="form-control fw-bold" type="number" disabled value={receiveForm.pure_weight} /></div>
-                          <button className="btn btn-primary w-100" onClick={receiveGold}>Save</button>
+                          <div className="alert alert-light border small text-center mb-3">
+                              Batch <strong>{selectedBatch.batch_no}</strong> | Sent: {selectedBatch.gross_weight}g
+                          </div>
+                          <div className="mb-3">
+                              <label className="small fw-bold text-muted">Refined Weight</label>
+                              <input className="form-control" type="number" onChange={e=>setReceiveForm({...receiveForm, refined_weight:e.target.value})} autoFocus />
+                          </div>
+                          <div className="mb-3">
+                              <label className="small fw-bold text-muted">Touch (%)</label>
+                              <input className="form-control" type="number" placeholder="99.50" value={receiveForm.touch} onChange={e=>handleTouchChange(e.target.value)} />
+                          </div>
+                          <div className="mb-3">
+                              <label className="small fw-bold text-muted">Pure Weight (Calculated)</label>
+                              <input className="form-control fw-bold fs-5 text-success bg-light" type="number" disabled value={receiveForm.pure_weight} />
+                          </div>
+                          <button className="btn btn-primary w-100 fw-bold" onClick={receiveRefined}>Update & Receive</button>
                       </div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* USE / TRANSFER STOCK MODAL */}
-      {showUseModal && (
+      {/* USE STOCK MODAL (Updated) */}
+      {showUseModal && selectedBatch && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-              <div className="modal-dialog">
-                  <div className="modal-content">
-                      <div className="modal-header"><h5 className="modal-title">Use / Transfer Refined Stock</h5><button className="btn-close" onClick={()=>setShowUseModal(false)}></button></div>
+              <div className="modal-dialog modal-dialog-centered">
+                  <div className="modal-content shadow border-0">
+                      <div className="modal-header bg-success text-white">
+                          <h5 className="modal-title fs-6">
+                              {selectedBatch.metal_type === 'GOLD' ? 'Gold Stock Transfer' : 'Silver Stock Transfer'}
+                          </h5>
+                          <button className="btn-close btn-close-white" onClick={()=>setShowUseModal(false)}></button>
+                      </div>
                       <div className="modal-body">
                           <div className="mb-3">
-                              <label className="fw-bold small">Transfer To:</label>
+                              <label className="small fw-bold text-muted">Transfer Destination</label>
                               <select className="form-select" value={useForm.transfer_to} onChange={e=>setUseForm({...useForm, transfer_to: e.target.value, recipient_id: ''})}>
-                                  <option value="INVENTORY">Internal Inventory (New Bar)</option>
-                                  <option value="VENDOR">Vendor (Pay/Credit)</option>
-                                  <option value="SHOP">B2B Shop / Neighbour</option>
+                                  <option value="INVENTORY">Internal Inventory (Create Stock)</option>
+                                  <option value="VENDOR">Pay Vendor (Gold/Silver Balance)</option>
+                                  <option value="SHOP">Transfer to B2B Shop</option>
                               </select>
                           </div>
+                          
+                          {/* DYNAMIC FIELDS & VENDOR FILTER */}
                           {useForm.transfer_to === 'VENDOR' && (
-                              <div className="mb-3"><label className="small">Select Vendor</label><select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}><option value="">-- Select Vendor --</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}</select></div>
+                              <div className="mb-3">
+                                  <label className="small fw-bold text-muted">Select {selectedBatch.metal_type} Vendor</label>
+                                  <select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}>
+                                      <option value="">-- Select Vendor --</option>
+                                      {getFilteredVendors().map(v => (
+                                          <option key={v.id} value={v.id}>{v.business_name} ({v.deals_in || 'ALL'})</option>
+                                      ))}
+                                  </select>
+                              </div>
                           )}
                           {useForm.transfer_to === 'SHOP' && (
-                              <div className="mb-3"><label className="small">Select Shop</label><select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}><option value="">-- Select Shop --</option>{shops.map(s => <option key={s.id} value={s.id}>{s.shop_name}</option>)}</select></div>
+                              <div className="mb-3">
+                                  <label className="small fw-bold text-muted">Select Shop</label>
+                                  <select className="form-select" onChange={e=>setUseForm({...useForm, recipient_id: e.target.value})}>
+                                      <option value="">-- Select Shop --</option>
+                                      {shops.map(s => <option key={s.id} value={s.id}>{s.shop_name}</option>)}
+                                  </select>
+                              </div>
                           )}
                           {useForm.transfer_to === 'INVENTORY' && (
-                              <div className="mb-3"><label>Item Name</label><input className="form-control" placeholder="e.g. 24k Bar" onChange={e=>setUseForm({...useForm, item_name:e.target.value})} /></div>
+                              <div className="mb-3">
+                                  <label className="small fw-bold text-muted">Stock Item Name</label>
+                                  <input className="form-control" 
+                                      placeholder={selectedBatch.metal_type === 'GOLD' ? "e.g. 24k Bar" : "e.g. Fine Silver Bar"} 
+                                      onChange={e=>setUseForm({...useForm, item_name:e.target.value})} 
+                                  />
+                              </div>
                           )}
-                          <div className="mb-3"><label>Weight to Transfer (Pure)</label><input className="form-control" type="number" onChange={e=>setUseForm({...useForm, use_weight:e.target.value})} /></div>
-                          <button className="btn btn-success w-100" onClick={useStock}>{useForm.transfer_to === 'INVENTORY' ? 'Add to Inventory' : 'Transfer Balance'}</button>
+                          
+                          <div className="mb-3">
+                              <label className="small fw-bold text-muted">Weight to Use (Pure)</label>
+                              {/* LIVE CALCULATOR */}
+                              {getCalculationDisplay()}
+                              
+                              <div className="input-group mt-2">
+                                <input 
+                                    className="form-control fw-bold" 
+                                    type="number" 
+                                    placeholder="Enter Weight..."
+                                    value={useForm.use_weight}
+                                    onChange={e=>setUseForm({...useForm, use_weight:e.target.value})} 
+                                />
+                                <span className="input-group-text">g</span>
+                              </div>
+                          </div>
+                          
+                          <button className="btn btn-success w-100 fw-bold" onClick={useStock}>
+                              Confirm Transfer & Log
+                          </button>
                       </div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* HISTORY MODAL */}
+      {/* HISTORY MODAL (Restored Columns) */}
       {showHistoryModal && selectedBatch && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
-              <div className="modal-dialog modal-lg">
-                  <div className="modal-content">
+              <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                  <div className="modal-content shadow border-0">
                       <div className="modal-header bg-light">
-                          <h5 className="modal-title">Batch History: {selectedBatch.batch_no}</h5>
+                          <h5 className="modal-title fs-6">Batch Items: <span className="font-monospace">{selectedBatch.batch_no}</span></h5>
                           <button className="btn-close" onClick={() => setShowHistoryModal(false)}></button>
                       </div>
                       <div className="modal-body p-0">
-                          <div className="table-responsive">
-                              <table className="table table-striped mb-0 small">
-                                  <thead className="table-secondary"><tr><th>Item</th><th>Gross Wt</th><th>Net Wt</th><th>Voucher</th><th>Date</th></tr></thead>
-                                  <tbody>
-                                      {historyItems.map((item, idx) => (
-                                          <tr key={idx}>
-                                              <td className="fw-bold">{item.item_name}</td><td>{item.gross_weight} g</td><td>{item.net_weight} g</td><td className="font-monospace">{item.voucher_no}</td><td>{new Date(item.purchase_date).toLocaleDateString()}</td>
-                                          </tr>
-                                      ))}
-                                  </tbody>
-                              </table>
-                          </div>
+                          <table className="table table-striped mb-0 small">
+                              <thead className="table-secondary"><tr><th>Item</th><th>Gross</th><th>Net</th><th>Voucher</th><th>Date</th></tr></thead> {/* ADDED Voucher */}
+                              <tbody>
+                                  {historyItems.map((item, idx) => (
+                                      <tr key={idx}>
+                                          <td className="fw-bold">{item.item_name}</td>
+                                          <td>{item.gross_weight}</td>
+                                          <td>{item.net_weight}</td>
+                                          <td className="font-monospace text-primary">{item.voucher_no}</td> {/* ADDED Voucher */}
+                                          <td>{new Date(item.purchase_date).toLocaleDateString()}</td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
                       </div>
-                      <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>Close</button></div>
                   </div>
               </div>
           </div>
