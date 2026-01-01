@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useBusiness } from '../context/BusinessContext'; // Import Context
+import InvoiceTemplate from '../components/InvoiceTemplate'; // Import Template
+import { useReactToPrint } from 'react-to-print'; // Import Print Hook
 
 function CustomerDetails() {
   const { phone } = useParams();
   const navigate = useNavigate();
+  const { settings } = useBusiness(); // Get Business Settings for Invoice
   const [data, setData] = useState(null);
   
   // Edit Profile State
@@ -17,12 +21,22 @@ function CustomerDetails() {
   const [payAmount, setPayAmount] = useState('');
   const [payMode, setPayMode] = useState('CASH');
 
+  // --- DELETE MODAL STATE ---
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [billToDelete, setBillToDelete] = useState(null);
+  const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); // 'REVERT_DEBT' or 'TAKE_OWNERSHIP'
+
+  // --- INVOICE VIEW STATE ---
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [viewInvoiceData, setViewInvoiceData] = useState(null); // { sale, items }
+  const invoiceRef = useRef();
+
   // --- CHIT STATES ---
   const [chits, setChits] = useState([]);
-  const [showChitModal, setShowChitModal] = useState(false); // To Create Plan
+  const [showChitModal, setShowChitModal] = useState(false); 
   const [newChit, setNewChit] = useState({ plan_type: 'AMOUNT', plan_name: '', monthly_amount: '' });
   
-  const [showChitPayModal, setShowChitPayModal] = useState(false); // To Pay Installment
+  const [showChitPayModal, setShowChitPayModal] = useState(false); 
   const [selectedChit, setSelectedChit] = useState(null);
   const [chitInstallmentAmount, setChitInstallmentAmount] = useState('');
 
@@ -32,13 +46,17 @@ function CustomerDetails() {
     try { 
         const res = await api.getCustomerDetails(phone); 
         setData(res.data);
-        // Load Chits
         if (res.data.customer && res.data.customer.id) {
             const chitRes = await api.getCustomerChits(res.data.customer.id);
             setChits(chitRes.data);
         }
     } catch (err) { alert("Error loading customer data"); }
   };
+
+  // --- PRINT HANDLER ---
+  const handlePrint = useReactToPrint({
+      content: () => invoiceRef.current,
+  });
 
   // --- PROFILE EDIT ---
   const handleImageUpload = (e) => {
@@ -78,9 +96,31 @@ function CustomerDetails() {
       } catch (err) { alert(err.response?.data?.error || "Payment Failed"); }
   };
 
-  const handleDeleteBill = async (saleId) => {
-    if(!window.confirm("Are you sure? This will VOID the bill and Restore Inventory.")) return;
-    try { await api.deleteBill(saleId); loadData(); } catch(err) { alert("Error deleting"); }
+  // --- NEW: DELETE BILL WITH OPTIONS ---
+  const promptDeleteBill = (sale) => {
+      setBillToDelete(sale);
+      setRestoreMode('REVERT_DEBT'); // Default to Revert
+      setShowDeleteModal(true);
+  };
+
+  const confirmDeleteBill = async () => {
+    if(!billToDelete) return;
+    try { 
+        await api.deleteBill(billToDelete.id, restoreMode); 
+        setShowDeleteModal(false);
+        setBillToDelete(null);
+        loadData(); 
+        alert("Bill Voided & Inventory Restored Successfully");
+    } catch(err) { alert("Error deleting: " + (err.response?.data?.error || err.message)); }
+  };
+
+  // --- NEW: VIEW INVOICE ---
+  const handleViewInvoice = async (sale) => {
+      try {
+          const res = await api.getInvoiceDetails(sale.id);
+          setViewInvoiceData(res.data);
+          setShowInvoiceModal(true);
+      } catch(err) { alert("Could not fetch invoice details"); }
   };
 
   // --- CHIT LOGIC ---
@@ -99,7 +139,7 @@ function CustomerDetails() {
 
   const openChitPayModal = (chit) => {
       setSelectedChit(chit);
-      setChitInstallmentAmount(chit.monthly_amount); // Default to monthly due
+      setChitInstallmentAmount(chit.monthly_amount); 
       setShowChitPayModal(true);
   };
 
@@ -110,11 +150,7 @@ function CustomerDetails() {
               chit_id: selectedChit.id,
               amount: chitInstallmentAmount
           });
-          if(res.data.gold_weight > 0) {
-              alert(`Payment Successful! Added ${parseFloat(res.data.gold_weight).toFixed(3)}g gold.`);
-          } else {
-              alert("Payment Successful!");
-          }
+          alert("Payment Successful!");
           setShowChitPayModal(false);
           loadData();
       } catch(err) { alert(err.response?.data?.error || "Failed"); }
@@ -194,13 +230,13 @@ function CustomerDetails() {
                 <div className="card-header bg-white p-0">
                     <ul className="nav nav-tabs card-header-tabs m-0" id="custTabs" role="tablist">
                         <li className="nav-item">
-                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#chits">
-                                <i className="bi bi-piggy-bank me-2 text-warning"></i>Savings Scheme
+                            <button className="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#history">
+                                <i className="bi bi-cart me-2"></i>Purchase History
                             </button>
                         </li>
                         <li className="nav-item">
-                            <button className="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#history">
-                                <i className="bi bi-cart me-2"></i>Purchase History
+                            <button className="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#chits">
+                                <i className="bi bi-piggy-bank me-2 text-warning"></i>Savings Scheme
                             </button>
                         </li>
                         <li className="nav-item">
@@ -213,21 +249,20 @@ function CustomerDetails() {
 
                 <div className="card-body p-0 tab-content">
                     
-                    {/* --- TAB 1: SAVINGS SCHEME (CHITS) --- */}
+                    {/* TAB 1: SAVINGS SCHEME */}
                     <div className="tab-pane fade show active" id="chits">
-                        <div className="p-3 d-flex justify-content-between align-items-center bg-light border-bottom">
+                         <div className="p-3 d-flex justify-content-between align-items-center bg-light border-bottom">
                             <h6 className="mb-0 fw-bold">Active Plans</h6>
                             <button className="btn btn-sm btn-primary" onClick={() => setShowChitModal(true)}>
                                 <i className="bi bi-plus-circle me-1"></i> New Plan
                             </button>
                         </div>
                         <div className="p-3">
-                            {chits.length === 0 ? <p className="text-center text-muted my-4">No Active Plans</p> : (
+                             {chits.length === 0 ? <p className="text-center text-muted my-4">No Active Plans</p> : (
                                 <div className="row g-3">
                                     {chits.map(chit => {
                                         const progress = Math.min((chit.installments_paid / chit.duration_months) * 100, 100);
                                         const isMatured = chit.status === 'MATURED';
-                                        
                                         return (
                                             <div key={chit.id} className="col-md-6">
                                                 <div className={`card h-100 ${isMatured ? 'border-success bg-success bg-opacity-10' : 'border-secondary'}`}>
@@ -239,8 +274,6 @@ function CustomerDetails() {
                                                         <div className="small text-muted mb-3">
                                                             Monthly: ₹{chit.monthly_amount} | Tenure: {chit.duration_months} Months
                                                         </div>
-
-                                                        {/* Status Bar */}
                                                         <div className="progress mb-2" style={{height:'8px'}}>
                                                             <div className="progress-bar bg-success" style={{width: `${progress}%`}}></div>
                                                         </div>
@@ -248,42 +281,31 @@ function CustomerDetails() {
                                                             <span>{chit.installments_paid} Paid</span>
                                                             <span>{chit.duration_months} Total</span>
                                                         </div>
-
                                                         <div className="row g-0 border rounded mb-3 bg-white">
                                                             <div className="col-6 border-end p-2 text-center">
                                                                 <small className="d-block text-muted">Total Saved</small>
                                                                 <span className="fw-bold text-success">₹{parseFloat(chit.total_paid).toLocaleString()}</span>
                                                             </div>
-                                                            {chit.plan_type === 'GOLD' && (
+                                                            {chit.plan_type === 'GOLD' ? (
                                                                 <div className="col-6 p-2 text-center">
                                                                     <small className="d-block text-muted">Accumulated</small>
                                                                     <span className="fw-bold text-warning">{parseFloat(chit.total_gold_weight).toFixed(3)}g</span>
                                                                 </div>
-                                                            )}
-                                                            {chit.plan_type === 'AMOUNT' && (
+                                                            ) : (
                                                                  <div className="col-6 p-2 text-center">
                                                                     <small className="d-block text-muted">Bonus</small>
                                                                     <span className="fw-bold">{isMatured ? 'Yes' : 'Pending'}</span>
                                                                  </div>
                                                             )}
                                                         </div>
-
                                                         <div className="d-flex gap-2">
                                                             {!isMatured && (
-                                                                <button className="btn btn-sm btn-outline-success flex-grow-1" onClick={() => openChitPayModal(chit)}>
-                                                                    Pay Installment
-                                                                </button>
+                                                                <button className="btn btn-sm btn-outline-success flex-grow-1" onClick={() => openChitPayModal(chit)}>Pay Installment</button>
                                                             )}
                                                             {!isMatured && chit.plan_type === 'AMOUNT' && chit.installments_paid >= 11 && (
-                                                                <button className="btn btn-sm btn-warning flex-grow-1" onClick={() => handleAddBonus(chit.id)}>
-                                                                    Add Bonus
-                                                                </button>
+                                                                <button className="btn btn-sm btn-warning flex-grow-1" onClick={() => handleAddBonus(chit.id)}>Add Bonus</button>
                                                             )}
-                                                            {isMatured && (
-                                                                <div className="w-100 text-center text-success fw-bold small py-1">
-                                                                    <i className="bi bi-check-circle-fill me-1"></i> MATURED
-                                                                </div>
-                                                            )}
+                                                            {isMatured && <div className="w-100 text-center text-success fw-bold small py-1"><i className="bi bi-check-circle-fill me-1"></i> MATURED</div>}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -295,11 +317,11 @@ function CustomerDetails() {
                         </div>
                     </div>
 
-                    {/* TAB 2: PURCHASE HISTORY */}
+                    {/* TAB 2: PURCHASE HISTORY (UPDATED) */}
                     <div className="tab-pane fade" id="history">
                         <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle">
-                                <thead className="table-light"><tr><th>Date</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Balance</th><th>Action</th></tr></thead>
+                                <thead className="table-light"><tr><th>Date</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Status</th><th className="text-end">Actions</th></tr></thead>
                                 <tbody>
                                     {history.map((sale) => (
                                         <tr key={sale.id} className={sale.balance_amount > 0 ? "table-warning" : ""}> 
@@ -313,11 +335,28 @@ function CustomerDetails() {
                                                     <span className="badge bg-success">PAID</span>
                                                 }
                                             </td>
-                                            <td>
-                                                {sale.balance_amount > 0 ? (
-                                                    <button className="btn btn-sm btn-primary me-2" onClick={() => openPayModal(sale)}>Pay</button>
-                                                ) : <button className="btn btn-sm btn-outline-secondary me-2" disabled><i className="bi bi-check-lg"></i></button>}
-                                                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteBill(sale.id)}><i className="bi bi-trash"></i></button>
+                                            <td className="text-end">
+                                                {/* 1. PAY BUTTON */}
+                                                {sale.balance_amount > 0 && (
+                                                    <button className="btn btn-sm btn-success me-1" title="Pay Balance" onClick={() => openPayModal(sale)}>
+                                                        <i className="bi bi-currency-rupee"></i>
+                                                    </button>
+                                                )}
+
+                                                {/* 2. RETURN BUTTON */}
+                                                <button className="btn btn-sm btn-warning me-1" title="Return / Exchange" onClick={() => navigate(`/billing/return?saleId=${sale.invoice_number || sale.id}`)}>
+                                                    <i className="bi bi-arrow-counterclockwise"></i>
+                                                </button>
+
+                                                {/* 3. VIEW/PRINT BUTTON */}
+                                                <button className="btn btn-sm btn-info me-1 text-white" title="View Bill" onClick={() => handleViewInvoice(sale)}>
+                                                    <i className="bi bi-eye"></i>
+                                                </button>
+
+                                                {/* 4. DELETE BUTTON */}
+                                                <button className="btn btn-sm btn-outline-danger" title="Void Bill" onClick={() => promptDeleteBill(sale)}>
+                                                    <i className="bi bi-trash"></i>
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -351,7 +390,7 @@ function CustomerDetails() {
         </div>
       </div>
 
-      {/* --- MODAL 1: CREATE CHIT --- */}
+      {/* --- MODAL: CREATE CHIT --- */}
       {showChitModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
@@ -372,11 +411,6 @@ function CustomerDetails() {
                                   <option value="AMOUNT">Fixed Amount + Bonus (11+1)</option>
                                   <option value="GOLD">Gold Accumulation (Weight)</option>
                               </select>
-                              <div className="form-text small mt-1">
-                                  {newChit.plan_type === 'AMOUNT' ? 
-                                    "Customer pays for 11 months. 12th month paid by Shop as Bonus." : 
-                                    "Payment is converted to Gold Weight using daily 999 Bar Rate."}
-                              </div>
                           </div>
                           <div className="mb-3">
                               <label className="form-label">Monthly Amount</label>
@@ -393,7 +427,7 @@ function CustomerDetails() {
           </div>
       )}
 
-      {/* --- MODAL 2: PAY CHIT INSTALLMENT --- */}
+      {/* --- MODAL: PAY CHIT --- */}
       {showChitPayModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
@@ -404,11 +438,6 @@ function CustomerDetails() {
                       </div>
                       <div className="modal-body">
                           <p className="mb-2"><strong>Plan:</strong> {selectedChit?.plan_name}</p>
-                          {selectedChit?.plan_type === 'GOLD' && (
-                              <div className="alert alert-warning small py-2">
-                                  Uses current <strong>999 Gold Rate</strong> to calculate weight.
-                              </div>
-                          )}
                           <div className="mb-3">
                               <label className="form-label">Amount</label>
                               <input type="number" className="form-control form-control-lg"
@@ -424,7 +453,7 @@ function CustomerDetails() {
           </div>
       )}
 
-      {/* --- MODAL 3: REGULAR BILL PAYMENT --- */}
+      {/* --- MODAL: BILL PAYMENT --- */}
       {showPayModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
@@ -460,6 +489,81 @@ function CustomerDetails() {
               </div>
           </div>
       )}
+
+      {/* --- MODAL: DELETE CONFIRMATION (RESTORATION OPTIONS) --- */}
+      {showDeleteModal && (
+        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.6)'}}>
+            <div className="modal-dialog">
+                <div className="modal-content">
+                    <div className="modal-header bg-danger text-white">
+                        <h5 className="modal-title">⚠ Void Bill & Restore Stock</h5>
+                        <button className="btn-close btn-close-white" onClick={() => setShowDeleteModal(false)}></button>
+                    </div>
+                    <div className="modal-body">
+                        <p className="fw-bold">Are you sure you want to void this bill?</p>
+                        <p className="text-muted small">Items will be added back to inventory. Please select how to handle Neighbour/B2B items:</p>
+                        
+                        <div className="list-group">
+                            <label className={`list-group-item list-group-item-action ${restoreMode === 'REVERT_DEBT' ? 'active' : ''}`}>
+                                <input className="form-check-input me-2" type="radio" 
+                                    checked={restoreMode === 'REVERT_DEBT'} 
+                                    onChange={() => setRestoreMode('REVERT_DEBT')} 
+                                />
+                                <div>
+                                    <div className="fw-bold">Revert Debt (Recommended)</div>
+                                    <div className="small">Return item to neighbour shop. Removes the debt we owe them.</div>
+                                </div>
+                            </label>
+                            <label className={`list-group-item list-group-item-action ${restoreMode === 'TAKE_OWNERSHIP' ? 'active' : ''}`}>
+                                <input className="form-check-input me-2" type="radio" 
+                                    checked={restoreMode === 'TAKE_OWNERSHIP'} 
+                                    onChange={() => setRestoreMode('TAKE_OWNERSHIP')} 
+                                />
+                                <div>
+                                    <div className="fw-bold">Take Ownership</div>
+                                    <div className="small">Keep item in OUR stock. We still owe them money (Debt remains).</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <div className="modal-footer">
+                        <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>Cancel</button>
+                        <button className="btn btn-danger fw-bold" onClick={confirmDeleteBill}>Confirm Void</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* --- MODAL: VIEW INVOICE --- */}
+      {showInvoiceModal && viewInvoiceData && (
+          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1050}}>
+              <div className="modal-dialog modal-lg">
+                  <div className="modal-content" style={{height: '90vh'}}>
+                      <div className="modal-header bg-dark text-white">
+                          <h5 className="modal-title">Invoice Preview</h5>
+                          <button className="btn-close btn-close-white" onClick={() => setShowInvoiceModal(false)}></button>
+                      </div>
+                      <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10">
+                          <div ref={invoiceRef}>
+                             <InvoiceTemplate 
+                                sale={viewInvoiceData.sale} 
+                                items={viewInvoiceData.items} 
+                                business={settings} 
+                             />
+                          </div>
+                      </div>
+                      <div className="modal-footer bg-light">
+                          <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>Close</button>
+                          <button className="btn btn-primary fw-bold" onClick={handlePrint}>
+                              <i className="bi bi-printer me-2"></i>PRINT
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 }
