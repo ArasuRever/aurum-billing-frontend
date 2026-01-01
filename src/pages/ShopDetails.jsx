@@ -47,7 +47,7 @@ function ShopDetails() {
     setFormMode('ITEM');
     const defaultMetal = productTypes.length > 0 ? productTypes[0].name : 'GOLD';
     
-    // FIX: Default metalOverride to 'AUTO' so logic detects based on name
+    // FIX: Default metalOverride to 'AUTO'
     setItemRows([{ 
         type: defaultMetal, desc: '', gross: '', quantity: 1, 
         wast: 92, calcType: 'MUL', 
@@ -72,7 +72,7 @@ function ShopDetails() {
       newRows[index].mc_total = (gross * mcRate).toFixed(2);
     }
     
-    // Reset override to AUTO if user changes the item type, so we re-detect
+    // Reset override if user changes type
     if (field === 'type') {
         newRows[index].metalOverride = 'AUTO';
     }
@@ -118,7 +118,7 @@ function ShopDetails() {
                   stock_type: item.stock_type, 
                   quantity: 1,
                   wast: item.wastage_percent || 0,
-                  metalOverride: 'AUTO' // Let backend/logic detect from type
+                  metalOverride: 'AUTO' // Let logic decide
               };
               
               setItemRows(newRows);
