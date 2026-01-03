@@ -30,7 +30,7 @@ function OldMetalPage() {
   const [paymentMode, setPaymentMode] = useState('cash'); 
   const [cashPaid, setCashPaid] = useState(0);
   const [onlinePaid, setOnlinePaid] = useState(0);
-  const [finalPayoutOverride, setFinalPayoutOverride] = useState('');
+  const [grossOverride, setGrossOverride] = useState(''); // Stores the manual Gross Amount
 
   // Search & Print State
   const [searchResults, setSearchResults] = useState([]);
@@ -78,26 +78,56 @@ function OldMetalPage() {
   const addNewRow = () => { saveToHistory(items); setItems([...items, { item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }]); };
   const removeRow = (index) => { saveToHistory(items); if(items.length === 1) { setItems([{ item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }]); } else { setItems(items.filter((_, i) => i !== index)); } };
 
-  const subTotal = items.reduce((sum, it) => sum + parseFloat(it.amount || 0), 0);
-  let taxableValue = subTotal;
-  let gstAmount = 0;
-  let calculatedNetPayout = 0;
-  if (deductGst) { gstAmount = Math.round(taxableValue * 0.03); calculatedNetPayout = taxableValue - gstAmount; } else { gstAmount = 0; calculatedNetPayout = subTotal; }
+  // --- CALCULATION LOGIC ---
+  const calculatedSubTotal = items.reduce((sum, it) => sum + parseFloat(it.amount || 0), 0);
+  
+  // 1. Determine Effective Gross (Manual Override or Calculated Sum)
+  const effectiveGross = grossOverride !== '' ? parseFloat(grossOverride) : calculatedSubTotal;
+  
+  // 2. Calculate GST on Effective Gross
+  const gstAmount = deductGst ? Math.round(effectiveGross * 0.03) : 0;
+  
+  // 3. Net Payout = Gross - GST
+  const netPayout = effectiveGross - gstAmount;
+
   const cgst = gstAmount / 2;
   const sgst = gstAmount / 2;
-  const effectivePayout = finalPayoutOverride !== '' ? parseFloat(finalPayoutOverride) : calculatedNetPayout;
 
+  // --- PAYMENT MODE EFFECT ---
   useEffect(() => {
-    if (paymentMode === 'cash') { setCashPaid(effectivePayout); setOnlinePaid(0); } 
-    else if (paymentMode === 'online') { setCashPaid(0); setOnlinePaid(effectivePayout); } 
-    else if (paymentMode === 'combined') {
+    if (paymentMode === 'cash') { 
+        setCashPaid(netPayout); 
+        setOnlinePaid(0); 
+    } else if (paymentMode === 'online') { 
+        setCashPaid(0); 
+        setOnlinePaid(netPayout); 
+    } else if (paymentMode === 'combined') {
+       // If combined, try to preserve user entry unless total mismatch
        const currentTotal = (parseFloat(cashPaid) || 0) + (parseFloat(onlinePaid) || 0);
-       if (Math.abs(currentTotal - effectivePayout) > 1) { setCashPaid(effectivePayout); setOnlinePaid(0); }
+       if (Math.abs(currentTotal - netPayout) > 1) { 
+           setCashPaid(netPayout); 
+           setOnlinePaid(0); 
+       }
     }
-  }, [effectivePayout, paymentMode]);
+  }, [netPayout, paymentMode]);
 
-  const handleCashChange = (val) => { const cash = parseFloat(val) || 0; setCashPaid(cash); if (paymentMode === 'combined') { const remaining = effectivePayout - cash; setOnlinePaid(remaining > 0 ? remaining : 0); } };
-  const handleOnlineChange = (val) => { const online = parseFloat(val) || 0; setOnlinePaid(online); if (paymentMode === 'combined') { const remaining = effectivePayout - online; setCashPaid(remaining > 0 ? remaining : 0); } };
+  const handleCashChange = (val) => { 
+      const cash = parseFloat(val) || 0; 
+      setCashPaid(cash); 
+      if (paymentMode === 'combined') { 
+          const remaining = netPayout - cash; 
+          setOnlinePaid(remaining > 0 ? remaining : 0); 
+      } 
+  };
+  
+  const handleOnlineChange = (val) => { 
+      const online = parseFloat(val) || 0; 
+      setOnlinePaid(online); 
+      if (paymentMode === 'combined') { 
+          const remaining = netPayout - online; 
+          setCashPaid(remaining > 0 ? remaining : 0); 
+      } 
+  };
   
   const handleCustomerSearch = async (val) => {
       setCustomer(prev => ({ ...prev, customer_name: val }));
@@ -110,7 +140,7 @@ function OldMetalPage() {
   const handleEditHistory = (row) => {
     setCustomer({ customer_name: row.customer_name, mobile: row.mobile });
     setItems([{ item_name: row.item_name, metal_type: row.metal_type, gross_weight: row.gross_weight || 0, less_weight: 0, net_weight: row.net_weight, rate: row.net_weight > 0 ? (row.amount / row.net_weight).toFixed(2) : 0, amount: row.amount }]);
-    setFinalPayoutOverride(''); 
+    setGrossOverride(''); // Reset override on edit to recalculate naturally
     setShowModal(true);
   };
 
@@ -128,11 +158,25 @@ function OldMetalPage() {
               try { await api.addCustomer({ name: customer.customer_name, phone: customer.mobile, address: 'Walk-in (Old Metal)', place: 'Local' }); } catch (ignore) {}
           }
           const validItems = items.filter(i => i.item_name && i.gross_weight);
-          const payload = { customer_name: customer.customer_name || 'Walk-in Customer', mobile: customer.mobile, items: validItems, total_amount: subTotal, gst_deducted: gstAmount, calculated_payout: calculatedNetPayout, net_payout: effectivePayout, payment_mode: paymentMode, cash_paid: cashPaid, online_paid: onlinePaid };
+          const payload = { 
+              customer_name: customer.customer_name || 'Walk-in Customer', 
+              mobile: customer.mobile, 
+              items: validItems, 
+              total_amount: effectiveGross, // Save the Effective Gross
+              gst_deducted: gstAmount, 
+              calculated_payout: netPayout, 
+              net_payout: netPayout, 
+              payment_mode: paymentMode, 
+              cash_paid: cashPaid, 
+              online_paid: onlinePaid 
+          };
           const res = await api.addOldMetalPurchase(payload);
           if (res && res.data) {
-              setPrintData({ customer: { ...customer }, items: JSON.parse(JSON.stringify(validItems)), totals: { totalAmount: subTotal, gstAmount, netPayout: effectivePayout, cgst, sgst }, voucherNo: res.data.voucher_no || 'NA' });
-              setShowModal(false); setShowPrintModal(true); loadData(); setCustomer({ customer_name: '', mobile: '' }); setItems([{ item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }]); setHistoryStack([]); setFutureStack([]); setDeductGst(false); setPaymentMode('cash'); setFinalPayoutOverride('');
+              setPrintData({ customer: { ...customer }, items: JSON.parse(JSON.stringify(validItems)), totals: { totalAmount: effectiveGross, gstAmount, netPayout, cgst, sgst }, voucherNo: res.data.voucher_no || 'NA' });
+              setShowModal(false); setShowPrintModal(true); loadData(); 
+              setCustomer({ customer_name: '', mobile: '' }); 
+              setItems([{ item_name: '', metal_type: 'GOLD', gross_weight: '', less_percent: 0, less_weight: 0, net_weight: 0, rate: '', amount: 0 }]); 
+              setHistoryStack([]); setFutureStack([]); setDeductGst(false); setPaymentMode('cash'); setGrossOverride('');
           } else { alert("Saved, but server returned no confirmation data."); setShowModal(false); loadData(); }
       } catch(err) { console.error(err); alert("Failed to save: " + (err.response?.data?.message || err.message)); }
   };
@@ -342,10 +386,11 @@ function OldMetalPage() {
                             <div className="card h-100 bg-light border-0">
                                 <div className="card-body">
                                     <div className="mb-3">
-                                        <label className="form-label small fw-bold text-success">Final Payout</label>
+                                        {/* RENAMED to Agreed Gross to clarify this sets the pre-tax amount */}
+                                        <label className="form-label small fw-bold text-secondary">Agreed Gross Amount</label>
                                         <div className="input-group">
-                                            <span className="input-group-text bg-success text-white">₹</span>
-                                            <input type="number" className="form-control fw-bold fs-5 text-success" placeholder={calculatedNetPayout} value={finalPayoutOverride} onChange={e => setFinalPayoutOverride(e.target.value)}/>
+                                            <span className="input-group-text bg-secondary text-white">₹</span>
+                                            <input type="number" className="form-control fw-bold fs-5" placeholder={calculatedSubTotal} value={grossOverride} onChange={e => setGrossOverride(e.target.value)}/>
                                         </div>
                                     </div>
                                     
@@ -361,19 +406,17 @@ function OldMetalPage() {
                                         <label className="btn btn-outline-secondary" htmlFor="pmSplit">Combined</label>
                                     </div>
 
-                                    {/* CONDITIONAL CASH/ONLINE INPUTS */}
-                                    {paymentMode === 'combined' && (
-                                        <div className="row g-2">
-                                            <div className="col-6">
-                                                <label className="small text-muted fw-bold">Cash Portion</label>
-                                                <input type="number" className="form-control" value={cashPaid} onChange={e => handleCashChange(e.target.value)} />
-                                            </div>
-                                            <div className="col-6">
-                                                <label className="small text-muted fw-bold">Online Portion</label>
-                                                <input type="number" className="form-control" value={onlinePaid} onChange={e => handleOnlineChange(e.target.value)} />
-                                            </div>
+                                    {/* ALWAYS VISIBLE PAYMENT INPUTS */}
+                                    <div className="row g-2">
+                                        <div className="col-6">
+                                            <label className="small text-muted fw-bold">Cash Paid</label>
+                                            <input type="number" className="form-control" value={cashPaid} onChange={e => handleCashChange(e.target.value)} disabled={paymentMode === 'online'} />
                                         </div>
-                                    )}
+                                        <div className="col-6">
+                                            <label className="small text-muted fw-bold">Online Paid</label>
+                                            <input type="number" className="form-control" value={onlinePaid} onChange={e => handleOnlineChange(e.target.value)} disabled={paymentMode === 'cash'} />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -387,10 +430,25 @@ function OldMetalPage() {
                                         <label className="form-check-label fw-bold small" htmlFor="gstSwitch">Deduct GST (3%)</label>
                                     </div>
                                 </div>
-                                <div className="d-flex justify-content-between mb-1"><span className="text-muted small">Gross Value:</span><span className="fw-bold">₹{taxableValue.toLocaleString()}</span></div>
-                                {deductGst && <><div className="d-flex justify-content-between mb-1 text-danger small"><span>SGST (1.5%):</span><span>- ₹{sgst.toFixed(2)}</span></div><div className="d-flex justify-content-between mb-2 text-danger small border-bottom border-warning pb-2"><span>CGST (1.5%):</span><span>- ₹{cgst.toFixed(2)}</span></div></>}
-                                <div className="d-flex justify-content-between pt-2"><h5 className="fw-bold text-dark">CALCULATED:</h5><h5 className="fw-bold text-muted">₹{calculatedNetPayout.toLocaleString()}</h5></div>
-                                <div className="d-flex justify-content-between pt-1 border-top border-dark mt-2"><h4 className="fw-bold text-success">PAYING NOW:</h4><h3 className="fw-bold text-success">₹{effectivePayout.toLocaleString()}</h3></div>
+                                
+                                {/* DISPLAY LOGIC */}
+                                <div className="d-flex justify-content-between mb-1">
+                                    <span className="text-muted small">Agreed Gross:</span>
+                                    <span className="fw-bold">₹{effectiveGross.toLocaleString()}</span>
+                                </div>
+                                {deductGst && (
+                                    <>
+                                        <div className="d-flex justify-content-between mb-1 text-danger small">
+                                            <span>GST (3%):</span>
+                                            <span>- ₹{gstAmount.toFixed(2)}</span>
+                                        </div>
+                                    </>
+                                )}
+                                
+                                <div className="d-flex justify-content-between pt-1 border-top border-dark mt-3">
+                                    <h4 className="fw-bold text-success">NET PAYOUT:</h4>
+                                    <h3 className="fw-bold text-success">₹{netPayout.toLocaleString()}</h3>
+                                </div>
                             </div>
                         </div>
                     </div>
