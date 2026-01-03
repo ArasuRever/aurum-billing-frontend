@@ -13,7 +13,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   // --- CONFIGURATION ---
   const accentColor = config.accent_color || '#d4af37';
   const showWatermark = config.show_watermark !== false; 
-  const watermarkText = config.watermark_text || 'SRI KUBERAN JEWELLERY';
+  const watermarkText = config.watermark_text || 'AURUM';
   const title = type || config.sales_title || 'TAX INVOICE';
   const terms = config.sales_terms || '1. Goods once sold will not be taken back.\n2. Subject to Salem Jurisdiction.\n3. E. & O.E.';
   const footerLeft = config.sales_footer_left || "Customer's Signature";
@@ -24,6 +24,10 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   const displayPref = biz.display_preference || 'BOTH';
   const showLogo = (displayPref === 'LOGO' || displayPref === 'BOTH') && biz.logo;
   const showName = (displayPref === 'NAME' || displayPref === 'BOTH');
+
+  // --- BUSINESS GSTIN LOGIC ---
+  // We check all possible fields. 'license_number' is what the Settings page saves as "License / GST".
+  const businessGST = biz.gstin || biz.gst || biz.license_number;
 
   // --- HELPER: Indian Date Formatter ---
   const formatDate = (dateString) => {
@@ -43,14 +47,13 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   const transparentStyle = { backgroundColor: 'transparent' };
 
   return (
-    <div id="printable-invoice" className="bg-white p-5 mx-auto position-relative" 
+    <div id="printable-invoice" className="d-flex flex-column bg-white p-5 mx-auto position-relative" 
          style={{
              maxWidth: '210mm', 
              minHeight: '297mm', 
              fontSize: '14px', 
              fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
              color: '#333',
-             overflow: 'hidden',
              isolation: 'isolate' 
          }}>
        
@@ -81,39 +84,35 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        )}
 
-       {/* --- HEADER SECTION (UPDATED LAYOUT) --- */}
-       <div className="d-flex justify-content-between align-items-start mb-5 position-relative">
+       {/* --- HEADER SECTION --- */}
+       <div className="d-flex justify-content-between align-items-start mb-5">
            
-           {/* LEFT SIDE: Logo + Details (Flex Container) */}
+           {/* LEFT SIDE: Logo + Details */}
            <div className="d-flex align-items-center">
-               
-               {/* 1. LOGO (Adjusted Size & Spacing) */}
                {showLogo && (
-                   <div className="me-4"> {/* Margin right adds space between logo and text */}
-                       <img 
-                           src={biz.logo} 
-                           alt="Logo" 
-                           style={{
-                               maxHeight: '100px', // Slightly larger height
-                               maxWidth: '150px',  // Constrain width
-                               objectFit: 'contain'
-                           }} 
-                       />
+                   <div className="me-4"> 
+                       <img src={biz.logo} alt="Logo" style={{ maxHeight: '100px', maxWidth: '150px', objectFit: 'contain' }} />
                    </div>
                )}
-               
-               {/* 2. BUSINESS DETAILS */}
                <div>
                    {showName && (
                        <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px', lineHeight: '1.1'}}>
                            {biz.business_name || 'AURUM JEWELLERY'}
                        </h2>
                    )}
+
+                   {/* --- GSTIN DISPLAY (MOVED HERE) --- */}
+                   {businessGST && (
+                       <div className="fw-bold text-dark mt-1" style={{ fontSize: '0.9rem' }}>
+                           GSTIN: {businessGST}
+                       </div>
+                   )}
+                   {/* ---------------------------------- */}
+
                    <div className="text-secondary mt-1 small" style={{maxWidth: '350px', lineHeight: '1.4'}}>
                        {biz.address || 'Gold Market, Salem'}<br/>
                        <span className="fw-bold text-dark">Mobile:</span> {biz.contact_number} 
                        {biz.email && <span> | <span className="fw-bold text-dark">E-Mail:</span> {biz.email}</span>}
-                       {biz.gstin && <div className="mt-1"><span className="badge bg-light text-dark border">GSTIN: {biz.gstin}</span></div>}
                    </div>
                </div>
            </div>
@@ -127,7 +126,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
        </div>
 
        {/* --- CUSTOMER INFO --- */}
-       <div className="row mb-5 position-relative">
+       <div className="row mb-5">
            <div className="col-6">
                <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Billed To</div>
                <h5 className="fw-bold mb-1">{customer.name}</h5>
@@ -137,8 +136,8 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        </div>
 
-       {/* --- ITEMS TABLE (TRANSPARENT) --- */}
-       <div className="mb-4 position-relative">
+       {/* --- ITEMS TABLE --- */}
+       <div className="mb-4 flex-grow-1">
            <table className="table table-borderless align-middle mb-0" style={transparentStyle}>
                <thead style={{borderBottom: `2px solid ${accentColor}`, ...transparentStyle}}>
                    <tr className="text-uppercase small fw-bold" style={{color: accentColor, ...transparentStyle}}>
@@ -156,7 +155,6 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
                             <div className="fw-bold text-dark">{item.item_name}</div>
                             <div className="d-flex gap-2 small mt-1">
                                 {showHSN && item.hsn_code && <span className="bg-light px-1 rounded" style={{backgroundColor: 'rgba(248,249,250,0.5)'}}>HSN: {item.hsn_code}</span>}
-                                {item.item_id && <span className="text-muted">Ref: {item.item_id}</span>}
                             </div>
                         </td>
                         <td className="py-3 text-center" style={transparentStyle}>{parseFloat(item.gross_weight).toFixed(3)} <small>g</small></td>
@@ -173,14 +171,13 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </table>
        </div>
 
-       {/* --- TOTALS & FOOTER --- */}
-       <div className="row position-relative">
+       {/* --- TOTALS SECTION --- */}
+       <div className="row mb-5">
            {/* Left: Exchange & Terms */}
            <div className="col-7 pe-5">
                {exchangeItems && exchangeItems.length > 0 && (
                    <div className="mb-4">
                        <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Exchange / Old Metal</div>
-                       {/* Transparent Exchange Table */}
                        <table className="table table-sm table-borderless text-secondary m-0" style={transparentStyle}>
                            <tbody style={transparentStyle}>
                            {exchangeItems.map((ex, i) => (
@@ -244,8 +241,8 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        </div>
 
-       {/* --- FOOTER --- */}
-       <div className="position-absolute bottom-0 start-0 w-100 p-5">
+       {/* --- FOOTER (Signatures) --- */}
+       <div className="mt-auto pt-4">
            <div className="row align-items-end">
                <div className="col-6">
                    <div className="text-uppercase small fw-bold text-muted mb-4">Customer Signature</div>

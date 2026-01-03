@@ -5,17 +5,19 @@ import { api } from '../api';
 import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar, FaUndo, FaPrint } from 'react-icons/fa';
 import InvoiceTemplate from '../components/InvoiceTemplate';
 import { useReactToPrint } from 'react-to-print';
-import { useBusiness } from '../context/BusinessContext';
 
 const BillHistory = () => {
-    // 1. Get Settings
-    const { settings } = useBusiness();
-    
     const navigate = useNavigate();
+    
+    // --- STATE MANAGEMENT ---
     const [bills, setBills] = useState([]);
     const [filteredBills, setFilteredBills] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
+
+    // --- BUSINESS SETTINGS (For Watermark & Branding) ---
+    // We fetch this directly to ensure it matches the Billing page exactly
+    const [businessProfile, setBusinessProfile] = useState(null);
 
     // --- INVOICE PRINTING STATES ---
     const [selectedBillData, setSelectedBillData] = useState(null);
@@ -29,6 +31,10 @@ const BillHistory = () => {
 
     useEffect(() => {
         fetchHistory();
+        // FETCH SETTINGS: Ensures Watermark/Config is loaded correctly
+        api.getBusinessSettings()
+           .then(res => setBusinessProfile(res.data))
+           .catch(console.error);
     }, []);
 
     const fetchHistory = async () => {
@@ -73,23 +79,24 @@ const BillHistory = () => {
         }
     };
 
-    // --- VIEW / PRINT LOGIC (FIXED MAPPING) ---
+    // --- VIEW / PRINT LOGIC ---
     const handleViewInvoice = async (bill) => {
         try {
             setLoading(true);
-            // 2. Fetch Details including Exchange Items
+            // 1. Fetch Details including Exchange Items
             const res = await api.getInvoiceDetails(bill.id); 
             const { sale, items, exchangeItems } = res.data;
 
-            // 3. MAP DATABASE FIELDS TO TEMPLATE EXPECTATIONS
+            // 2. MAP ITEMS (Database Fields -> Template Fields)
             const formattedItems = items.map(item => ({
                 item_name: item.item_name,
                 gross_weight: item.sold_weight, // Database uses sold_weight
                 rate: item.sold_rate,
                 total: item.total_item_price,
-                wastage_percent: item.making_charges_collected || 0, // Fallback
+                wastage_percent: item.making_charges_collected || 0,
                 hsn_code: item.hsn_code,
-                item_id: item.item_id
+                item_id: item.item_id 
+                // Note: Ref ID is passed here, but hidden in InvoiceTemplate via code update
             }));
 
             const formattedExchange = (exchangeItems || []).map(ex => ({
@@ -103,7 +110,7 @@ const BillHistory = () => {
 
             const formattedData = {
                 invoice_id: sale.invoice_number,
-                date: sale.created_at || sale.invoice_date, // Handle different DB date columns
+                date: sale.created_at || sale.invoice_date,
                 customer: {
                     name: sale.customer_name,
                     phone: sale.customer_phone,
@@ -112,14 +119,14 @@ const BillHistory = () => {
                 },
                 items: formattedItems,
                 totals: {
-                    grossTotal: parseFloat(sale.gross_total || 0), // Use gross_total for taxable value
+                    grossTotal: parseFloat(sale.gross_total || 0),
                     cgst: parseFloat(sale.cgst_amount || 0),
                     sgst: parseFloat(sale.sgst_amount || 0),
                     totalDiscount: parseFloat(sale.discount || 0),
                     exchangeTotal: parseFloat(sale.exchange_total || 0),
                     netPayable: parseFloat(sale.final_amount || 0)
                 },
-                includeGST: sale.is_gst_bill, // Ensure boolean is passed
+                includeGST: sale.is_gst_bill,
                 exchangeItems: formattedExchange,
                 type: 'TAX INVOICE'
             };
@@ -137,14 +144,6 @@ const BillHistory = () => {
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
     });
-
-    // 4. MAP BUSINESS SETTINGS
-    const mappedBusinessProfile = {
-        ...settings,
-        business_name: settings.name,      // Map 'name' to 'business_name'
-        contact_number: settings.phone,    // Map 'phone' to 'contact_number'
-        // Logo is usually mapped correctly if it's 'logo' in both
-    };
 
     return (
         <Container fluid className="p-3">
@@ -250,7 +249,7 @@ const BillHistory = () => {
                             <div ref={componentRef} className="shadow-lg">
                                 <InvoiceTemplate 
                                     data={selectedBillData} 
-                                    businessProfile={mappedBusinessProfile} // Passed Correctly Mapped Profile
+                                    businessProfile={businessProfile} // Uses the correctly fetched profile
                                 />
                             </div>
                         </div>
@@ -286,12 +285,7 @@ const BillHistory = () => {
                             <Form.Check 
                                 type="radio"
                                 id="mode-revert"
-                                label={
-                                    <span>
-                                        <strong>Revert Debt (Recommended)</strong> <br/>
-                                        <small className="text-muted">Item goes back to neighbour. We assume the sale never happened. Debt is removed.</small>
-                                    </span>
-                                }
+                                label={<span><strong>Revert Debt (Recommended)</strong> <br/><small className="text-muted">Item goes back to neighbour. We assume the sale never happened. Debt is removed.</small></span>}
                                 name="restoreMode"
                                 checked={restoreMode === 'REVERT_DEBT'}
                                 onChange={() => setRestoreMode('REVERT_DEBT')}
@@ -299,12 +293,7 @@ const BillHistory = () => {
                             <Form.Check 
                                 type="radio"
                                 id="mode-own"
-                                label={
-                                    <span>
-                                        <strong>Take Ownership</strong> <br/>
-                                        <small className="text-muted">Item becomes OUR stock. We keep the debt (we owe them money).</small>
-                                    </span>
-                                }
+                                label={<span><strong>Take Ownership</strong> <br/><small className="text-muted">Item becomes OUR stock. We keep the debt (we owe them money).</small></span>}
                                 name="restoreMode"
                                 checked={restoreMode === 'TAKE_OWNERSHIP'}
                                 onChange={() => setRestoreMode('TAKE_OWNERSHIP')}
