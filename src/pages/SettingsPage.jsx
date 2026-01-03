@@ -2,7 +2,7 @@ import React, { useEffect, useState, useContext } from 'react';
 import { api } from '../api';
 import { BusinessContext } from '../context/BusinessContext';
 import InvoiceTemplate from '../components/InvoiceTemplate';
-import OldMetalReceipt from '../components/OldMetalReceipt'; // Import Added
+import OldMetalReceipt from '../components/OldMetalReceipt'; 
 
 const MODULES = [
     { key: 'BILLING', label: 'Sales & Billing' },
@@ -48,8 +48,9 @@ function SettingsPage() {
   const [bizForm, setBizForm] = useState({ business_name: '', contact_number: '', email: '', license_number: '', address: '', display_preference: 'BOTH' });
   const [bizLogo, setBizLogo] = useState(null);
   const [bizLogoPreview, setBizLogoPreview] = useState(null);
+  
+  // Initial State with Safe Defaults
   const [invoiceConfig, setInvoiceConfig] = useState({
-      // Sales Bill
       sales_title: 'TAX INVOICE',
       sales_terms: '1. Goods once sold will not be taken back.\n2. Subject to Salem Jurisdiction.\n3. E. & O.E.',
       sales_footer_left: "Customer's Signature",
@@ -58,8 +59,6 @@ function SettingsPage() {
       watermark_text: 'AURUM',
       show_hsn: true,
       accent_color: '#d4af37',
-      
-      // Old Metal / Purchase
       purchase_title: 'PURCHASE VOUCHER',
       purchase_footer_left: 'Customer Sig',
       purchase_footer_right: 'Cashier / Manager'
@@ -101,6 +100,7 @@ function SettingsPage() {
                   display_preference: res.data.display_preference || 'BOTH'
               });
               
+              // Safe Merge of Config
               if (res.data.invoice_config) {
                   setInvoiceConfig(prev => ({ ...prev, ...res.data.invoice_config }));
               }
@@ -167,7 +167,6 @@ function SettingsPage() {
   const saveBusinessProfile = async () => { 
       const fd = new FormData(); 
       Object.keys(bizForm).forEach(k => fd.append(k, bizForm[k])); 
-      // Append Invoice Config as JSON String
       fd.append('invoice_config', JSON.stringify(invoiceConfig));
       if (bizLogo) fd.append('logo', bizLogo); 
       try { 
@@ -203,40 +202,40 @@ function SettingsPage() {
                       <div className="card-body">
                           <div className="mb-3">
                               <label className="form-label small fw-bold">Invoice Title</label>
-                              <input className="form-control" value={invoiceConfig.sales_title} onChange={e => setInvoiceConfig({...invoiceConfig, sales_title: e.target.value})} />
+                              <input className="form-control" value={invoiceConfig?.sales_title || ''} onChange={e => setInvoiceConfig({...invoiceConfig, sales_title: e.target.value})} />
                           </div>
                           <div className="row g-2 mb-3">
                               <div className="col-md-6">
                                   <label className="form-label small fw-bold">Accent Color</label>
                                   <div className="input-group">
-                                      <input type="color" className="form-control form-control-color" value={invoiceConfig.accent_color} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} title="Choose your color" />
-                                      <input type="text" className="form-control" value={invoiceConfig.accent_color} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} />
+                                      <input type="color" className="form-control form-control-color" value={invoiceConfig?.accent_color || '#d4af37'} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} title="Choose your color" />
+                                      <input type="text" className="form-control" value={invoiceConfig?.accent_color || ''} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} />
                                   </div>
                               </div>
                               <div className="col-md-6">
                                   <label className="form-label small fw-bold">Options</label>
                                   <div className="form-check form-switch">
-                                      <input className="form-check-input" type="checkbox" checked={invoiceConfig.show_hsn} onChange={e => setInvoiceConfig({...invoiceConfig, show_hsn: e.target.checked})} />
+                                      <input className="form-check-input" type="checkbox" checked={invoiceConfig?.show_hsn} onChange={e => setInvoiceConfig({...invoiceConfig, show_hsn: e.target.checked})} />
                                       <label className="form-check-label small">Show HSN Col</label>
                                   </div>
                               </div>
                           </div>
                           <div className="mb-3">
                               <div className="form-check form-switch">
-                                  <input className="form-check-input" type="checkbox" checked={invoiceConfig.show_watermark} onChange={e => setInvoiceConfig({...invoiceConfig, show_watermark: e.target.checked})} />
+                                  <input className="form-check-input" type="checkbox" checked={invoiceConfig?.show_watermark} onChange={e => setInvoiceConfig({...invoiceConfig, show_watermark: e.target.checked})} />
                                   <label className="form-check-label small fw-bold">Enable Watermark</label>
                               </div>
-                              {invoiceConfig.show_watermark && (
-                                  <input className="form-control mt-2" placeholder="Watermark Text" value={invoiceConfig.watermark_text} onChange={e => setInvoiceConfig({...invoiceConfig, watermark_text: e.target.value})} />
+                              {invoiceConfig?.show_watermark && (
+                                  <input className="form-control mt-2" placeholder="Watermark Text" value={invoiceConfig?.watermark_text || ''} onChange={e => setInvoiceConfig({...invoiceConfig, watermark_text: e.target.value})} />
                               )}
                           </div>
                           <div className="mb-3">
                               <label className="form-label small fw-bold">Terms & Conditions</label>
-                              <textarea className="form-control" rows="4" value={invoiceConfig.sales_terms} onChange={e => setInvoiceConfig({...invoiceConfig, sales_terms: e.target.value})}></textarea>
+                              <textarea className="form-control" rows="4" value={invoiceConfig?.sales_terms || ''} onChange={e => setInvoiceConfig({...invoiceConfig, sales_terms: e.target.value})}></textarea>
                           </div>
                           <div className="row g-2">
-                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig.sales_footer_left} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_left: e.target.value})} /></div>
-                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig.sales_footer_right} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_right: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig?.sales_footer_left || ''} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_left: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig?.sales_footer_right || ''} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_right: e.target.value})} /></div>
                           </div>
                       </div>
                   </div>
@@ -246,11 +245,11 @@ function SettingsPage() {
                       <div className="card-body">
                            <div className="mb-3">
                               <label className="form-label small fw-bold">Voucher Title</label>
-                              <input className="form-control" value={invoiceConfig.purchase_title} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_title: e.target.value})} />
+                              <input className="form-control" value={invoiceConfig?.purchase_title || ''} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_title: e.target.value})} />
                           </div>
                            <div className="row g-2">
-                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig.purchase_footer_left} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_left: e.target.value})} /></div>
-                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig.purchase_footer_right} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_right: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig?.purchase_footer_left || ''} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_left: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig?.purchase_footer_right || ''} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_right: e.target.value})} /></div>
                           </div>
                       </div>
                   </div>

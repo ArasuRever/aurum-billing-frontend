@@ -10,7 +10,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   const biz = businessProfile || {};
   const config = biz.invoice_config || {};
   
-  // Use Defaults
+  // --- CONFIGURATION ---
   const accentColor = config.accent_color || '#d4af37';
   const showWatermark = config.show_watermark !== false; 
   const watermarkText = config.watermark_text || 'AURUM';
@@ -19,6 +19,28 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   const footerLeft = config.sales_footer_left || "Customer's Signature";
   const footerRight = config.sales_footer_right || "Authorized Signatory";
   const showHSN = config.show_hsn !== false; 
+  
+  // Header Display Preference
+  const displayPref = biz.display_preference || 'BOTH';
+  const showLogo = (displayPref === 'LOGO' || displayPref === 'BOTH') && biz.logo;
+  const showName = (displayPref === 'NAME' || displayPref === 'BOTH');
+
+  // --- HELPER: Indian Date Formatter ---
+  const formatDate = (dateString) => {
+      if (!dateString) return '';
+      try {
+          const d = new Date(dateString);
+          if (isNaN(d.getTime())) return dateString;
+          return d.toLocaleDateString('en-IN', {
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric'
+          });
+      } catch (e) { return dateString; }
+  };
+
+  // --- STYLE FOR TRANSPARENCY ---
+  const transparentStyle = { backgroundColor: 'transparent' };
 
   return (
     <div id="printable-invoice" className="bg-white p-5 mx-auto position-relative" 
@@ -27,30 +49,49 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
              minHeight: '297mm', 
              fontSize: '14px', 
              fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-             color: '#333'
+             color: '#333',
+             overflow: 'hidden',
+             isolation: 'isolate' 
          }}>
        
-       {/* WATERMARK */}
+       {/* --- WATERMARK (WRAPPED, CENTERED, FADED) --- */}
        {showWatermark && (
-           <div className="position-absolute top-50 start-50 translate-middle text-muted opacity-10" 
+           <div className="position-absolute top-50 start-50 translate-middle d-flex justify-content-center align-items-center" 
                 style={{
-                    fontSize: '8rem', 
-                    zIndex: 0, 
-                    transform: 'translate(-50%, -50%) rotate(-45deg)', 
+                    zIndex: -1, // Behind everything
                     pointerEvents: 'none', 
-                    whiteSpace:'nowrap',
-                    fontWeight: '900',
-                    letterSpacing: '10px'
+                    width: '100%', 
+                    height: '100%',
+                    overflow: 'hidden'
                 }}>
-               {watermarkText}
+               <h1 className="fw-bolder text-uppercase m-0 text-center" 
+                   style={{
+                       fontSize: 'clamp(3rem, 8vw, 6rem)', // Adjusted for wrapping
+                       letterSpacing: '0.2rem',
+                       lineHeight: '1.2',
+                       color: '#d4af37', 
+                       opacity: 0.1,    
+                       transform: 'rotate(-45deg)', 
+                       width: '75%', // Constrain width to force wrapping
+                       wordWrap: 'break-word', // Ensure long words break
+                       overflowWrap: 'break-word'
+                   }}>
+                   {watermarkText}
+               </h1>
            </div>
        )}
 
-       {/* HEADER SECTION */}
-       <div className="d-flex justify-content-between align-items-start mb-5 position-relative" style={{zIndex: 1}}>
+       {/* --- HEADER SECTION --- */}
+       <div className="d-flex justify-content-between align-items-start mb-5 position-relative">
            <div>
-               {biz.logo && <img src={biz.logo} alt="Logo" className="mb-3" style={{maxHeight: '80px', objectFit: 'contain'}} />}
-               <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px'}}>{biz.business_name || 'AURUM JEWELLERY'}</h2>
+               {showLogo && (
+                   <img src={biz.logo} alt="Logo" className="mb-3" style={{maxHeight: '90px', objectFit: 'contain'}} />
+               )}
+               {showName && (
+                   <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px'}}>
+                       {biz.business_name || 'AURUM JEWELLERY'}
+                   </h2>
+               )}
                <div className="text-secondary mt-2 small" style={{maxWidth: '300px', lineHeight: '1.5'}}>
                    {biz.address || 'Gold Market, Salem'}<br/>
                    <span className="fw-bold text-dark">Mobile:</span> {biz.contact_number} {biz.email && <span>| <span className="fw-bold text-dark">E-Mail:</span> {biz.email}</span>}
@@ -60,12 +101,12 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            <div className="text-end">
                <div className="display-6 fw-light text-uppercase mb-2" style={{color: '#aaa'}}>{title}</div>
                <h4 className="fw-bold m-0" style={{color: accentColor}}>#{invoice_id}</h4>
-               <div className="text-muted fw-bold">{date}</div>
+               <div className="text-muted fw-bold">{formatDate(date)}</div>
            </div>
        </div>
 
-       {/* CUSTOMER & BILLING INFO */}
-       <div className="row mb-5 position-relative" style={{zIndex: 1}}>
+       {/* --- CUSTOMER INFO --- */}
+       <div className="row mb-5 position-relative">
            <div className="col-6">
                <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Billed To</div>
                <h5 className="fw-bold mb-1">{customer.name}</h5>
@@ -75,55 +116,57 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        </div>
 
-       {/* MODERN ITEMS TABLE */}
-       <div className="mb-4 position-relative" style={{zIndex: 1}}>
-           <table className="table table-borderless align-middle">
-               <thead style={{borderBottom: `2px solid ${accentColor}`}}>
-                   <tr className="text-uppercase small fw-bold" style={{color: accentColor}}>
-                       <th className="py-3 ps-0">Item Description {showHSN && '/ HSN'}</th>
-                       <th className="py-3 text-center">Gross Wt</th>
-                       <th className="py-3 text-center">VA / Wastage</th>
-                       <th className="py-3 text-center">Rate</th>
-                       <th className="py-3 pe-0 text-end">Amount</th>
+       {/* --- ITEMS TABLE (TRANSPARENT) --- */}
+       <div className="mb-4 position-relative">
+           <table className="table table-borderless align-middle mb-0" style={transparentStyle}>
+               <thead style={{borderBottom: `2px solid ${accentColor}`, ...transparentStyle}}>
+                   <tr className="text-uppercase small fw-bold" style={{color: accentColor, ...transparentStyle}}>
+                       <th className="py-3 ps-0" style={transparentStyle}>Item Description {showHSN && '/ HSN'}</th>
+                       <th className="py-3 text-center" style={transparentStyle}>Gross Wt</th>
+                       <th className="py-3 text-center" style={transparentStyle}>VA / Wastage</th>
+                       <th className="py-3 text-center" style={transparentStyle}>Rate</th>
+                       <th className="py-3 pe-0 text-end" style={transparentStyle}>Amount</th>
                    </tr>
                </thead>
-               <tbody className="text-secondary">
+               <tbody className="text-secondary" style={transparentStyle}>
                   {items.map((item, i) => (
-                     <tr key={i} style={{borderBottom: '1px solid #f0f0f0'}}>
-                        <td className="py-3 ps-0">
+                     <tr key={i} style={{borderBottom: '1px solid #f0f0f0', ...transparentStyle}}>
+                        <td className="py-3 ps-0" style={transparentStyle}>
                             <div className="fw-bold text-dark">{item.item_name}</div>
                             <div className="d-flex gap-2 small mt-1">
-                                {showHSN && item.hsn_code && <span className="bg-light px-1 rounded">HSN: {item.hsn_code}</span>}
+                                {showHSN && item.hsn_code && <span className="bg-light px-1 rounded" style={{backgroundColor: 'rgba(248,249,250,0.5)'}}>HSN: {item.hsn_code}</span>}
                                 {item.item_id && <span className="text-muted">Ref: {item.item_id}</span>}
                             </div>
                         </td>
-                        <td className="py-3 text-center">{parseFloat(item.gross_weight).toFixed(3)} <small>g</small></td>
-                        <td className="py-3 text-center">{item.wastage_percent ? `${item.wastage_percent}%` : (item.making_charges || '-')}</td>
-                        <td className="py-3 text-center">₹{item.rate}</td>
-                        <td className="py-3 pe-0 text-end fw-bold text-dark">₹{parseFloat(item.total).toLocaleString()}</td>
+                        <td className="py-3 text-center" style={transparentStyle}>{parseFloat(item.gross_weight).toFixed(3)} <small>g</small></td>
+                        <td className="py-3 text-center" style={transparentStyle}>{item.wastage_percent ? `${item.wastage_percent}%` : (item.making_charges || '-')}</td>
+                        <td className="py-3 text-center" style={transparentStyle}>₹{item.rate}</td>
+                        <td className="py-3 pe-0 text-end fw-bold text-dark" style={transparentStyle}>₹{parseFloat(item.total).toLocaleString()}</td>
                      </tr>
                   ))}
-                  {/* Minimal Filler - just space */}
+                  {/* Spacer Rows */}
                   {items.length < 5 && (
-                      <tr><td colSpan="5" style={{height: `${(5 - items.length) * 50}px`}}></td></tr>
+                      <tr style={transparentStyle}><td colSpan="5" style={{height: `${(5 - items.length) * 50}px`, ...transparentStyle}}></td></tr>
                   )}
                </tbody>
            </table>
        </div>
 
-       {/* TOTALS & EXCHANGE SECTION */}
-       <div className="row position-relative" style={{zIndex: 1}}>
+       {/* --- TOTALS & FOOTER --- */}
+       <div className="row position-relative">
+           {/* Left: Exchange & Terms */}
            <div className="col-7 pe-5">
                {exchangeItems && exchangeItems.length > 0 && (
                    <div className="mb-4">
-                       <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Exchange Details</div>
-                       <table className="table table-sm table-borderless text-secondary m-0">
-                           <tbody>
+                       <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Exchange / Old Metal</div>
+                       {/* Transparent Exchange Table */}
+                       <table className="table table-sm table-borderless text-secondary m-0" style={transparentStyle}>
+                           <tbody style={transparentStyle}>
                            {exchangeItems.map((ex, i) => (
-                               <tr key={i}>
-                                   <td className="ps-0">{ex.name}</td>
-                                   <td>{ex.net_weight}g @ {ex.rate}</td>
-                                   <td className="text-end text-danger pe-0">- ₹{parseFloat(ex.total).toLocaleString()}</td>
+                               <tr key={i} style={transparentStyle}>
+                                   <td className="ps-0" style={transparentStyle}>{ex.name}</td>
+                                   <td style={transparentStyle}>{ex.net_weight}g @ {ex.rate}</td>
+                                   <td className="text-end text-danger pe-0" style={transparentStyle}>- ₹{parseFloat(ex.total).toLocaleString()}</td>
                                </tr>
                            ))}
                            </tbody>
@@ -140,6 +183,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
                </div>
            </div>
 
+           {/* Right: Calculations */}
            <div className="col-5 ps-4">
                <div className="d-flex justify-content-between mb-2 text-secondary">
                    <span>Taxable Value</span>
@@ -179,7 +223,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        </div>
 
-       {/* FOOTER */}
+       {/* --- FOOTER --- */}
        <div className="position-absolute bottom-0 start-0 w-100 p-5">
            <div className="row align-items-end">
                <div className="col-6">
