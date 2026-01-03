@@ -20,7 +20,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   const footerRight = config.sales_footer_right || "Authorized Signatory";
   const showHSN = config.show_hsn !== false; 
   
-  // Header Display Preference
+  // --- LOGO & NAME VISIBILITY LOGIC ---
   const displayPref = biz.display_preference || 'BOTH';
   const showLogo = (displayPref === 'LOGO' || displayPref === 'BOTH') && biz.logo;
   const showName = (displayPref === 'NAME' || displayPref === 'BOTH');
@@ -54,11 +54,11 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
              isolation: 'isolate' 
          }}>
        
-       {/* --- WATERMARK (WRAPPED, CENTERED, FADED) --- */}
+       {/* --- WATERMARK --- */}
        {showWatermark && (
            <div className="position-absolute top-50 start-50 translate-middle d-flex justify-content-center align-items-center" 
                 style={{
-                    zIndex: -1, // Behind everything
+                    zIndex: -1, 
                     pointerEvents: 'none', 
                     width: '100%', 
                     height: '100%',
@@ -66,14 +66,14 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
                 }}>
                <h1 className="fw-bolder text-uppercase m-0 text-center" 
                    style={{
-                       fontSize: 'clamp(3rem, 8vw, 6rem)', // Adjusted for wrapping
+                       fontSize: 'clamp(3rem, 8vw, 6rem)', 
                        letterSpacing: '0.2rem',
                        lineHeight: '1.2',
                        color: '#d4af37', 
                        opacity: 0.1,    
                        transform: 'rotate(-45deg)', 
-                       width: '75%', // Constrain width to force wrapping
-                       wordWrap: 'break-word', // Ensure long words break
+                       width: '75%', 
+                       wordWrap: 'break-word', 
                        overflowWrap: 'break-word'
                    }}>
                    {watermarkText}
@@ -81,23 +81,44 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
            </div>
        )}
 
-       {/* --- HEADER SECTION --- */}
+       {/* --- HEADER SECTION (UPDATED LAYOUT) --- */}
        <div className="d-flex justify-content-between align-items-start mb-5 position-relative">
-           <div>
+           
+           {/* LEFT SIDE: Logo + Details (Flex Container) */}
+           <div className="d-flex align-items-center">
+               
+               {/* 1. LOGO (Adjusted Size & Spacing) */}
                {showLogo && (
-                   <img src={biz.logo} alt="Logo" className="mb-3" style={{maxHeight: '90px', objectFit: 'contain'}} />
+                   <div className="me-4"> {/* Margin right adds space between logo and text */}
+                       <img 
+                           src={biz.logo} 
+                           alt="Logo" 
+                           style={{
+                               maxHeight: '100px', // Slightly larger height
+                               maxWidth: '150px',  // Constrain width
+                               objectFit: 'contain'
+                           }} 
+                       />
+                   </div>
                )}
-               {showName && (
-                   <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px'}}>
-                       {biz.business_name || 'AURUM JEWELLERY'}
-                   </h2>
-               )}
-               <div className="text-secondary mt-2 small" style={{maxWidth: '300px', lineHeight: '1.5'}}>
-                   {biz.address || 'Gold Market, Salem'}<br/>
-                   <span className="fw-bold text-dark">Mobile:</span> {biz.contact_number} {biz.email && <span>| <span className="fw-bold text-dark">E-Mail:</span> {biz.email}</span>}
-                   {biz.gstin && <div className="mt-1"><span className="badge bg-light text-dark border">GSTIN: {biz.gstin}</span></div>}
+               
+               {/* 2. BUSINESS DETAILS */}
+               <div>
+                   {showName && (
+                       <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px', lineHeight: '1.1'}}>
+                           {biz.business_name || 'AURUM JEWELLERY'}
+                       </h2>
+                   )}
+                   <div className="text-secondary mt-1 small" style={{maxWidth: '350px', lineHeight: '1.4'}}>
+                       {biz.address || 'Gold Market, Salem'}<br/>
+                       <span className="fw-bold text-dark">Mobile:</span> {biz.contact_number} 
+                       {biz.email && <span> | <span className="fw-bold text-dark">E-Mail:</span> {biz.email}</span>}
+                       {biz.gstin && <div className="mt-1"><span className="badge bg-light text-dark border">GSTIN: {biz.gstin}</span></div>}
+                   </div>
                </div>
            </div>
+
+           {/* RIGHT SIDE: Invoice Meta */}
            <div className="text-end">
                <div className="display-6 fw-light text-uppercase mb-2" style={{color: '#aaa'}}>{title}</div>
                <h4 className="fw-bold m-0" style={{color: accentColor}}>#{invoice_id}</h4>
