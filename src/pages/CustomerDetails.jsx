@@ -2,7 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import InvoiceTemplate from '../components/InvoiceTemplate'; 
-import { useReactToPrint } from 'react-to-print'; 
+
+// --- PRINT CSS (Matches Billing.jsx) ---
+const printStyles = `
+  @media print {
+    body * { visibility: hidden; }
+    #printable-invoice, #printable-invoice * { visibility: visible; }
+    #printable-invoice { 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      width: 100%; 
+      margin: 0; 
+      padding: 0; 
+      background: white; 
+      color: black; 
+    }
+    .btn-close, .modal-footer, .no-print { display: none !important; }
+  }
+`;
 
 function CustomerDetails() {
   const { phone } = useParams();
@@ -10,40 +28,45 @@ function CustomerDetails() {
   
   // --- STATE ---
   const [data, setData] = useState(null);
-  const [businessProfile, setBusinessProfile] = useState(null); // Fetch explicit profile for invoice
+  const [businessProfile, setBusinessProfile] = useState(null); 
   
   // Edit Profile State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
 
-  // Payment Modal (Regular Billing)
+  // Payment Modal
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
   const [payAmount, setPayAmount] = useState('');
   const [payMode, setPayMode] = useState('CASH');
 
-  // --- DELETE MODAL STATE ---
+  // Delete Modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [billToDelete, setBillToDelete] = useState(null);
   const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); 
 
-  // --- INVOICE VIEW STATE ---
+  // Invoice View State
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [viewInvoiceData, setViewInvoiceData] = useState(null); 
-  const invoiceRef = useRef();
 
-  // --- CHIT STATES ---
+  // Chit States
   const [chits, setChits] = useState([]);
   const [showChitModal, setShowChitModal] = useState(false); 
   const [newChit, setNewChit] = useState({ plan_type: 'AMOUNT', plan_name: '', monthly_amount: '' });
-  
   const [showChitPayModal, setShowChitPayModal] = useState(false); 
   const [selectedChit, setSelectedChit] = useState(null);
   const [chitInstallmentAmount, setChitInstallmentAmount] = useState('');
 
+  // --- INJECT PRINT STYLES ---
+  useEffect(() => {
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = printStyles;
+    document.head.appendChild(styleSheet);
+    return () => document.head.removeChild(styleSheet);
+  }, []);
+
   useEffect(() => { 
       loadData(); 
-      // Fetch Business Settings for Invoice Watermark/Logo
       api.getBusinessSettings().then(res => setBusinessProfile(res.data)).catch(console.error);
   }, [phone]);
 
@@ -57,11 +80,6 @@ function CustomerDetails() {
         }
     } catch (err) { alert("Error loading customer data"); }
   };
-
-  // --- PRINT HANDLER ---
-  const handlePrint = useReactToPrint({
-      content: () => invoiceRef.current,
-  });
 
   // --- PROFILE EDIT ---
   const handleImageUpload = (e) => {
@@ -80,7 +98,7 @@ function CustomerDetails() {
     } catch(err) { alert("Error updating"); }
   };
 
-  // --- REGULAR PAYMENTS (BILLING) ---
+  // --- REGULAR PAYMENTS ---
   const openPayModal = (sale) => {
       setSelectedBill(sale);
       setPayAmount(sale.balance_amount);
@@ -101,7 +119,7 @@ function CustomerDetails() {
       } catch (err) { alert(err.response?.data?.error || "Payment Failed"); }
   };
 
-  // --- DELETE BILL WITH OPTIONS ---
+  // --- DELETE BILL ---
   const promptDeleteBill = (sale) => {
       setBillToDelete(sale);
       setRestoreMode('REVERT_DEBT'); 
@@ -119,13 +137,12 @@ function CustomerDetails() {
     } catch(err) { alert("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  // --- VIEW INVOICE (FIXED MAPPING) ---
+  // --- VIEW INVOICE ---
   const handleViewInvoice = async (sale) => {
       try {
           const res = await api.getInvoiceDetails(sale.id);
           const { sale: saleData, items, exchangeItems } = res.data;
 
-          // Format Data to match InvoiceTemplate expectation
           const formattedData = {
               invoice_id: saleData.invoice_number,
               date: saleData.created_at || saleData.invoice_date,
@@ -366,7 +383,7 @@ function CustomerDetails() {
                         </div>
                     </div>
 
-                    {/* TAB 2: PURCHASE HISTORY (UPDATED) */}
+                    {/* TAB 2: PURCHASE HISTORY */}
                     <div className="tab-pane fade show active" id="history">
                         <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle">
@@ -532,7 +549,7 @@ function CustomerDetails() {
           </div>
       )}
 
-      {/* --- MODAL: DELETE CONFIRMATION (RESTORATION OPTIONS) --- */}
+      {/* --- MODAL: DELETE CONFIRMATION --- */}
       {showDeleteModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.6)'}}>
             <div className="modal-dialog">
@@ -544,27 +561,14 @@ function CustomerDetails() {
                     <div className="modal-body">
                         <p className="fw-bold">Are you sure you want to void this bill?</p>
                         <p className="text-muted small">Items will be added back to inventory. Please select how to handle Neighbour/B2B items:</p>
-                        
                         <div className="list-group">
                             <label className={`list-group-item list-group-item-action ${restoreMode === 'REVERT_DEBT' ? 'active' : ''}`}>
-                                <input className="form-check-input me-2" type="radio" 
-                                    checked={restoreMode === 'REVERT_DEBT'} 
-                                    onChange={() => setRestoreMode('REVERT_DEBT')} 
-                                />
-                                <div>
-                                    <div className="fw-bold">Revert Debt (Recommended)</div>
-                                    <div className="small">Return item to neighbour shop. Removes the debt we owe them.</div>
-                                </div>
+                                <input className="form-check-input me-2" type="radio" checked={restoreMode === 'REVERT_DEBT'} onChange={() => setRestoreMode('REVERT_DEBT')} />
+                                <div><div className="fw-bold">Revert Debt (Recommended)</div><div className="small">Return item to neighbour shop. Removes the debt we owe them.</div></div>
                             </label>
                             <label className={`list-group-item list-group-item-action ${restoreMode === 'TAKE_OWNERSHIP' ? 'active' : ''}`}>
-                                <input className="form-check-input me-2" type="radio" 
-                                    checked={restoreMode === 'TAKE_OWNERSHIP'} 
-                                    onChange={() => setRestoreMode('TAKE_OWNERSHIP')} 
-                                />
-                                <div>
-                                    <div className="fw-bold">Take Ownership</div>
-                                    <div className="small">Keep item in OUR stock. We still owe them money (Debt remains).</div>
-                                </div>
+                                <input className="form-check-input me-2" type="radio" checked={restoreMode === 'TAKE_OWNERSHIP'} onChange={() => setRestoreMode('TAKE_OWNERSHIP')} />
+                                <div><div className="fw-bold">Take Ownership</div><div className="small">Keep item in OUR stock. We still owe them money (Debt remains).</div></div>
                             </label>
                         </div>
                     </div>
@@ -577,7 +581,7 @@ function CustomerDetails() {
         </div>
       )}
 
-      {/* --- MODAL: VIEW INVOICE --- */}
+      {/* --- MODAL: VIEW INVOICE (FIXED PRINTING) --- */}
       {showInvoiceModal && viewInvoiceData && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1050}}>
               <div className="modal-dialog modal-lg">
@@ -587,17 +591,16 @@ function CustomerDetails() {
                           <button className="btn-close btn-close-white" onClick={() => setShowInvoiceModal(false)}></button>
                       </div>
                       <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10">
-                          <div ref={invoiceRef}>
-                             {/* UPDATED: Passing correct props to the template */}
-                             <InvoiceTemplate 
-                                data={viewInvoiceData}
-                                businessProfile={businessProfile} 
-                             />
-                          </div>
+                          {/* Invoice content wraps in a div but standard printing reads #printable-invoice via CSS */}
+                          <InvoiceTemplate 
+                             data={viewInvoiceData}
+                             businessProfile={businessProfile} 
+                          />
                       </div>
                       <div className="modal-footer bg-light">
                           <button className="btn btn-secondary" onClick={() => setShowInvoiceModal(false)}>Close</button>
-                          <button className="btn btn-primary fw-bold" onClick={handlePrint}>
+                          {/* Changed to window.print() which works with the new printStyles CSS */}
+                          <button className="btn btn-primary fw-bold" onClick={() => window.print()}>
                               <i className="bi bi-printer me-2"></i>PRINT
                           </button>
                       </div>

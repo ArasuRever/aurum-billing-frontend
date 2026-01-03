@@ -4,34 +4,56 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar, FaUndo, FaPrint } from 'react-icons/fa';
 import InvoiceTemplate from '../components/InvoiceTemplate';
-import { useReactToPrint } from 'react-to-print';
+
+// --- PRINT CSS (Matches Billing.jsx) ---
+const printStyles = `
+  @media print {
+    body * { visibility: hidden; }
+    #printable-invoice, #printable-invoice * { visibility: visible; }
+    #printable-invoice { 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      width: 100%; 
+      margin: 0; 
+      padding: 0; 
+      background: white; 
+      color: black; 
+    }
+    .btn-close, .modal-footer, .no-print { display: none !important; }
+  }
+`;
 
 const BillHistory = () => {
     const navigate = useNavigate();
     
-    // --- STATE MANAGEMENT ---
+    // --- STATE ---
     const [bills, setBills] = useState([]);
     const [filteredBills, setFilteredBills] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
 
-    // --- BUSINESS SETTINGS (For Watermark & Branding) ---
-    // We fetch this directly to ensure it matches the Billing page exactly
     const [businessProfile, setBusinessProfile] = useState(null);
 
-    // --- INVOICE PRINTING STATES ---
+    // Invoice View State
     const [selectedBillData, setSelectedBillData] = useState(null);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-    const componentRef = useRef();
 
-    // --- NEIGHBOUR RESTORE MODAL STATES ---
+    // Delete Modal State
     const [showNeighbourModal, setShowNeighbourModal] = useState(false);
     const [billToDelete, setBillToDelete] = useState(null);
     const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); 
 
+    // --- INJECT PRINT STYLES ---
+    useEffect(() => {
+        const styleSheet = document.createElement("style");
+        styleSheet.innerText = printStyles;
+        document.head.appendChild(styleSheet);
+        return () => document.head.removeChild(styleSheet);
+    }, []);
+
     useEffect(() => {
         fetchHistory();
-        // FETCH SETTINGS: Ensures Watermark/Config is loaded correctly
         api.getBusinessSettings()
            .then(res => setBusinessProfile(res.data))
            .catch(console.error);
@@ -79,24 +101,21 @@ const BillHistory = () => {
         }
     };
 
-    // --- VIEW / PRINT LOGIC ---
+    // --- VIEW INVOICE ---
     const handleViewInvoice = async (bill) => {
         try {
             setLoading(true);
-            // 1. Fetch Details including Exchange Items
             const res = await api.getInvoiceDetails(bill.id); 
             const { sale, items, exchangeItems } = res.data;
 
-            // 2. MAP ITEMS (Database Fields -> Template Fields)
             const formattedItems = items.map(item => ({
                 item_name: item.item_name,
-                gross_weight: item.sold_weight, // Database uses sold_weight
+                gross_weight: item.sold_weight, 
                 rate: item.sold_rate,
                 total: item.total_item_price,
                 wastage_percent: item.making_charges_collected || 0,
                 hsn_code: item.hsn_code,
                 item_id: item.item_id 
-                // Note: Ref ID is passed here, but hidden in InvoiceTemplate via code update
             }));
 
             const formattedExchange = (exchangeItems || []).map(ex => ({
@@ -140,10 +159,6 @@ const BillHistory = () => {
             alert("Could not load invoice details");
         }
     };
-
-    const handlePrint = useReactToPrint({
-        content: () => componentRef.current,
-    });
 
     return (
         <Container fluid className="p-3">
@@ -199,7 +214,6 @@ const BillHistory = () => {
                                         </Badge>
                                     </td>
                                     <td className="text-center">
-                                        {/* RETURN BUTTON */}
                                         <Button 
                                             variant="outline-warning" 
                                             size="sm" 
@@ -210,7 +224,6 @@ const BillHistory = () => {
                                             <FaUndo />
                                         </Button>
 
-                                        {/* VIEW / PRINT BUTTON */}
                                         <Button 
                                             variant="outline-info" 
                                             size="sm" 
@@ -221,7 +234,6 @@ const BillHistory = () => {
                                             <FaEye />
                                         </Button>
 
-                                        {/* DELETE / VOID BUTTON */}
                                         <Button 
                                             variant="outline-danger" 
                                             size="sm" 
@@ -246,10 +258,10 @@ const BillHistory = () => {
                 <Modal.Body style={{ backgroundColor: '#e9ecef', overflow: 'hidden' }}>
                     {selectedBillData && (
                         <div className="d-flex justify-content-center" style={{transform: 'scale(0.85)', transformOrigin: 'top center'}}>
-                            <div ref={componentRef} className="shadow-lg">
+                            <div className="shadow-lg">
                                 <InvoiceTemplate 
                                     data={selectedBillData} 
-                                    businessProfile={businessProfile} // Uses the correctly fetched profile
+                                    businessProfile={businessProfile} 
                                 />
                             </div>
                         </div>
@@ -257,7 +269,8 @@ const BillHistory = () => {
                 </Modal.Body>
                 <Modal.Footer>
                     <Button variant="secondary" onClick={() => setShowInvoiceModal(false)}>Close</Button>
-                    <Button variant="primary" onClick={handlePrint}>
+                    {/* Changed to window.print() */}
+                    <Button variant="primary" onClick={() => window.print()}>
                         <FaPrint className="me-2"/> Print Invoice
                     </Button>
                 </Modal.Footer>
@@ -271,16 +284,9 @@ const BillHistory = () => {
                 <Modal.Body>
                     <p className="fw-bold">Are you sure you want to void this bill?</p>
                     <p className="text-muted small">
-                        This action will restore items to inventory and remove sales records.
+                        Items will be added back to inventory. Please select how to handle Neighbour/B2B items:
                     </p>
-                    
-                    <Alert variant="warning" className="mt-3">
-                        <FaFileInvoiceDollar className="me-2" />
-                        <strong>For Neighbour/Third-Party Items:</strong>
-                    </Alert>
-
                     <Form.Group className="mb-3">
-                        <Form.Label>How should we handle the debt?</Form.Label>
                         <div className="d-flex flex-column gap-2">
                             <Form.Check 
                                 type="radio"

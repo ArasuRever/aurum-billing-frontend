@@ -3,12 +3,21 @@ import { api } from '../api';
 import InvoiceTemplate from '../components/InvoiceTemplate';
 
 // --- PRINT CSS ---
-// The .no-print class here ensures elements with that class are hidden during printing
+// Updated: Removed fixed height to prevent clustering/squashing of content
 const printStyles = `
   @media print {
     body * { visibility: hidden; }
     #printable-invoice, #printable-invoice * { visibility: visible; }
-    #printable-invoice { position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: white; color: black; }
+    #printable-invoice { 
+        position: absolute; 
+        left: 0; 
+        top: 0; 
+        width: 100%; 
+        margin: 0; 
+        padding: 0; 
+        background: white; 
+        color: black; 
+    }
     .btn-close, .modal-footer, .no-print { display: none !important; }
   }
 `;
@@ -102,8 +111,10 @@ function Billing() {
     }
     if (field === 'item_desc') {
         const upper = value.toUpperCase();
+        // Check if the typed value matches a Shop Nick ID
         const matchedShop = shops.find(s => s.nick_id && (upper === s.nick_id || upper.startsWith(s.nick_id + ' ')));
         updates.neighbour_id = matchedShop ? matchedShop.id : null;
+        // Auto-append hyphen if Nick ID is typed
         if (matchedShop && upper === matchedShop.nick_id) updates[field] = `${matchedShop.nick_id} - `; 
     }
     setEntry(prev => ({ ...prev, ...updates }));
@@ -177,9 +188,22 @@ function Billing() {
     }]);
   };
 
+  // --- UPDATED HANDLER ---
   const handleManualAdd = () => {
     let finalName = entry.item_name || entry.item_desc;
     if (!finalName || !entry.gross_weight) return alert("Name & Weight Required");
+
+    // FIX: Remove "NickID - " from the name before adding to cart
+    if (entry.neighbour_id && shops.length > 0) {
+        const shop = shops.find(s => s.id === entry.neighbour_id);
+        if (shop && shop.nick_id) {
+            const prefix = `${shop.nick_id} - `;
+            if (finalName.toUpperCase().startsWith(prefix.toUpperCase())) {
+                finalName = finalName.slice(prefix.length).trim();
+            }
+        }
+    }
+
     performAddToCart({ ...entry, item_name: finalName, default_wastage: entry.wastage_percent });
     setEntry({ item_id: null, item_name: '', item_desc: '', barcode: '', metal_type: 'GOLD', gross_weight: '', quantity: 1, wastage_percent: '', making_charges: '', item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0, stock_type: 'SINGLE' });
   };
@@ -432,10 +456,11 @@ function Billing() {
                               <small className="text-muted" style={{fontSize: '0.7rem'}}>
                                 {item.barcode ? `Bar: ${item.barcode}` : `ID: ${item.item_id || '-'}`}
                               </small>
-                              {/* Show Neighbor Shop Badge if exists */}
+                              {/* Show Neighbor Shop Nick ID if exists */}
                               {item.neighbour_id && (
                                 <span className="badge bg-warning text-dark mt-1" style={{fontSize: '0.65rem', width: 'fit-content', margin: '0 auto'}}>
-                                  Shop: {item.neighbour_id}
+                                  {/* Lookup Shop Name for Display */}
+                                  Shop: {shops.find(s => s.id === item.neighbour_id)?.nick_id || item.neighbour_id}
                                 </span>
                               )}
                           </div>
