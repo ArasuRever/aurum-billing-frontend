@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { useBusiness } from '../context/BusinessContext'; // Import Context
-import InvoiceTemplate from '../components/InvoiceTemplate'; // Import Template
-import { useReactToPrint } from 'react-to-print'; // Import Print Hook
+import InvoiceTemplate from '../components/InvoiceTemplate'; 
+import { useReactToPrint } from 'react-to-print'; 
 
 function CustomerDetails() {
   const { phone } = useParams();
   const navigate = useNavigate();
-  const { settings } = useBusiness(); // Get Business Settings for Invoice
+  
+  // --- STATE ---
   const [data, setData] = useState(null);
+  const [businessProfile, setBusinessProfile] = useState(null); // Fetch explicit profile for invoice
   
   // Edit Profile State
   const [isEditing, setIsEditing] = useState(false);
@@ -24,11 +25,11 @@ function CustomerDetails() {
   // --- DELETE MODAL STATE ---
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [billToDelete, setBillToDelete] = useState(null);
-  const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); // 'REVERT_DEBT' or 'TAKE_OWNERSHIP'
+  const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); 
 
   // --- INVOICE VIEW STATE ---
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [viewInvoiceData, setViewInvoiceData] = useState(null); // { sale, items }
+  const [viewInvoiceData, setViewInvoiceData] = useState(null); 
   const invoiceRef = useRef();
 
   // --- CHIT STATES ---
@@ -40,7 +41,11 @@ function CustomerDetails() {
   const [selectedChit, setSelectedChit] = useState(null);
   const [chitInstallmentAmount, setChitInstallmentAmount] = useState('');
 
-  useEffect(() => { loadData(); }, [phone]);
+  useEffect(() => { 
+      loadData(); 
+      // Fetch Business Settings for Invoice Watermark/Logo
+      api.getBusinessSettings().then(res => setBusinessProfile(res.data)).catch(console.error);
+  }, [phone]);
 
   const loadData = async () => {
     try { 
@@ -96,10 +101,10 @@ function CustomerDetails() {
       } catch (err) { alert(err.response?.data?.error || "Payment Failed"); }
   };
 
-  // --- NEW: DELETE BILL WITH OPTIONS ---
+  // --- DELETE BILL WITH OPTIONS ---
   const promptDeleteBill = (sale) => {
       setBillToDelete(sale);
-      setRestoreMode('REVERT_DEBT'); // Default to Revert
+      setRestoreMode('REVERT_DEBT'); 
       setShowDeleteModal(true);
   };
 
@@ -114,13 +119,57 @@ function CustomerDetails() {
     } catch(err) { alert("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  // --- NEW: VIEW INVOICE ---
+  // --- VIEW INVOICE (FIXED MAPPING) ---
   const handleViewInvoice = async (sale) => {
       try {
           const res = await api.getInvoiceDetails(sale.id);
-          setViewInvoiceData(res.data);
+          const { sale: saleData, items, exchangeItems } = res.data;
+
+          // Format Data to match InvoiceTemplate expectation
+          const formattedData = {
+              invoice_id: saleData.invoice_number,
+              date: saleData.created_at || saleData.invoice_date,
+              customer: {
+                  name: saleData.customer_name,
+                  phone: saleData.customer_phone,
+                  address: saleData.customer_address || '', 
+                  gstin: saleData.cust_gstin || ''
+              },
+              items: items.map(item => ({
+                  item_name: item.item_name,
+                  gross_weight: item.sold_weight,
+                  rate: item.sold_rate,
+                  total: item.total_item_price,
+                  wastage_percent: item.making_charges_collected || 0,
+                  hsn_code: item.hsn_code,
+                  item_id: item.item_id
+              })),
+              totals: {
+                  grossTotal: parseFloat(saleData.gross_total || 0),
+                  cgst: parseFloat(saleData.cgst_amount || 0),
+                  sgst: parseFloat(saleData.sgst_amount || 0),
+                  totalDiscount: parseFloat(saleData.discount || 0),
+                  exchangeTotal: parseFloat(saleData.exchange_total || 0),
+                  netPayable: parseFloat(saleData.final_amount || 0)
+              },
+              includeGST: saleData.is_gst_bill,
+              exchangeItems: (exchangeItems || []).map(ex => ({
+                  name: ex.item_name,
+                  gross_weight: ex.gross_weight,
+                  less_weight: ex.less_weight,
+                  net_weight: ex.net_weight,
+                  rate: ex.rate,
+                  total: ex.total_amount
+              })),
+              type: 'TAX INVOICE'
+          };
+
+          setViewInvoiceData(formattedData);
           setShowInvoiceModal(true);
-      } catch(err) { alert("Could not fetch invoice details"); }
+      } catch(err) { 
+          console.error(err);
+          alert("Could not fetch invoice details"); 
+      }
   };
 
   // --- CHIT LOGIC ---
@@ -250,7 +299,7 @@ function CustomerDetails() {
                 <div className="card-body p-0 tab-content">
                     
                     {/* TAB 1: SAVINGS SCHEME */}
-                    <div className="tab-pane fade show active" id="chits">
+                    <div className="tab-pane fade" id="chits">
                          <div className="p-3 d-flex justify-content-between align-items-center bg-light border-bottom">
                             <h6 className="mb-0 fw-bold">Active Plans</h6>
                             <button className="btn btn-sm btn-primary" onClick={() => setShowChitModal(true)}>
@@ -318,7 +367,7 @@ function CustomerDetails() {
                     </div>
 
                     {/* TAB 2: PURCHASE HISTORY (UPDATED) */}
-                    <div className="tab-pane fade" id="history">
+                    <div className="tab-pane fade show active" id="history">
                         <div className="table-responsive">
                             <table className="table table-hover mb-0 align-middle">
                                 <thead className="table-light"><tr><th>Date</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Status</th><th className="text-end">Actions</th></tr></thead>
@@ -336,24 +385,17 @@ function CustomerDetails() {
                                                 }
                                             </td>
                                             <td className="text-end">
-                                                {/* 1. PAY BUTTON */}
                                                 {sale.balance_amount > 0 && (
                                                     <button className="btn btn-sm btn-success me-1" title="Pay Balance" onClick={() => openPayModal(sale)}>
                                                         <i className="bi bi-currency-rupee"></i>
                                                     </button>
                                                 )}
-
-                                                {/* 2. RETURN BUTTON */}
                                                 <button className="btn btn-sm btn-warning me-1" title="Return / Exchange" onClick={() => navigate(`/billing/return?saleId=${sale.invoice_number || sale.id}`)}>
                                                     <i className="bi bi-arrow-counterclockwise"></i>
                                                 </button>
-
-                                                {/* 3. VIEW/PRINT BUTTON */}
                                                 <button className="btn btn-sm btn-info me-1 text-white" title="View Bill" onClick={() => handleViewInvoice(sale)}>
                                                     <i className="bi bi-eye"></i>
                                                 </button>
-
-                                                {/* 4. DELETE BUTTON */}
                                                 <button className="btn btn-sm btn-outline-danger" title="Void Bill" onClick={() => promptDeleteBill(sale)}>
                                                     <i className="bi bi-trash"></i>
                                                 </button>
@@ -546,10 +588,10 @@ function CustomerDetails() {
                       </div>
                       <div className="modal-body overflow-auto p-0 bg-secondary bg-opacity-10">
                           <div ref={invoiceRef}>
+                             {/* UPDATED: Passing correct props to the template */}
                              <InvoiceTemplate 
-                                sale={viewInvoiceData.sale} 
-                                items={viewInvoiceData.items} 
-                                business={settings} 
+                                data={viewInvoiceData}
+                                businessProfile={businessProfile} 
                              />
                           </div>
                       </div>
