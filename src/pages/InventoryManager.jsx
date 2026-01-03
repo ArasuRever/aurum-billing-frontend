@@ -2,16 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { useReactToPrint } from 'react-to-print';
 import BarcodePrintComponent from '../components/BarcodePrintComponent';
+import { useNavigate } from 'react-router-dom'; // IMPORTED
 
 function InventoryManager() {
+  const navigate = useNavigate(); // HOOK
   const [activeTab, setActiveTab] = useState('FRESH'); 
   
-  const [items, setItems] = useState([]); // Fresh Items
-  const [oldItems, setOldItems] = useState([]); // Old Metal Items
+  const [items, setItems] = useState([]); 
+  const [oldItems, setOldItems] = useState([]); 
   
-  const [filterMode, setFilterMode] = useState(''); // Source Filter
-  const [filterMetal, setFilterMetal] = useState(null); // Card Click Filter
-  const [searchQuery, setSearchQuery] = useState(''); // Live Search
+  const [filterMode, setFilterMode] = useState(''); 
+  const [filterMetal, setFilterMetal] = useState(null); 
+  const [searchQuery, setSearchQuery] = useState(''); 
   
   const [vendors, setVendors] = useState([]);
   const [productTypes, setProductTypes] = useState([]); 
@@ -80,14 +82,12 @@ function InventoryManager() {
 
   const searchFilteredItems = getFilteredList();
 
-  // 3. Apply Metal Card Filter (Visual)
   const displayItems = searchFilteredItems.filter(i => 
       !filterMetal || i.metal_type === filterMetal
   );
 
-  // --- DYNAMIC TOTALS CALCULATION (Based on Search Results) ---
+  // --- DYNAMIC TOTALS ---
   const getTotals = () => {
-      // Use the items found by search/source to calculate totals for the cards
       const typeSet = new Set([...productTypes.map(t=>t.name), ...searchFilteredItems.map(i=>i.metal_type)]);
       const uniqueTypes = Array.from(typeSet);
 
@@ -97,26 +97,16 @@ function InventoryManager() {
               .reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0)
               .toFixed(3);
           const count = matchingItems.length;
-          
           const setting = productTypes.find(t => t.name === type);
-          return { 
-              type, 
-              totalWeight,
-              count,
-              color: setting ? setting.display_color : '#6c757d' 
-          };
+          return { type, totalWeight, count, color: setting ? setting.display_color : '#6c757d' };
       });
   };
 
   const totals = getTotals();
-
-  // Search Summary Stats
   const searchCount = searchFilteredItems.length;
   const searchWeight = searchFilteredItems.reduce((sum, i) => sum + parseFloat(i.gross_weight || 0), 0).toFixed(3);
 
-  const handleCardClick = (type) => {
-      setFilterMetal(prev => prev === type ? null : type);
-  };
+  const handleCardClick = (type) => { setFilterMetal(prev => prev === type ? null : type); };
 
   const getSourceLabel = (item) => {
       if (item.source_type === 'OWN') return <span className="badge bg-success">SHOP OWNED</span>;
@@ -131,19 +121,12 @@ function InventoryManager() {
           const allIds = {};
           displayItems.forEach(i => allIds[i.id] = true);
           setSelectedIds(allIds);
-      } else {
-          setSelectedIds({});
-      }
+      } else { setSelectedIds({}); }
   };
 
-  const handleSelectRow = (id) => {
-      setSelectedIds(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+  const handleSelectRow = (id) => { setSelectedIds(prev => ({ ...prev, [id]: !prev[id] })); };
 
-  const handlePrintTags = useReactToPrint({
-      content: () => printRef.current,
-      onAfterPrint: () => setSelectedIds({})
-  });
+  const handlePrintTags = useReactToPrint({ content: () => printRef.current, onAfterPrint: () => setSelectedIds({}) });
 
   const getItemsToPrint = () => {
       const list = activeTab === 'FRESH' ? items : oldItems;
@@ -159,21 +142,16 @@ function InventoryManager() {
 
   const handleAddItemToBatch = () => {
       if(!tempItem.item_name || !tempItem.gross_weight) return alert("Enter Item Name and Weight");
-      setBatchForm({
-          ...batchForm,
-          items: [...batchForm.items, { ...tempItem, id: Date.now() }]
-      });
+      setBatchForm({ ...batchForm, items: [...batchForm.items, { ...tempItem, id: Date.now() }] });
       setTempItem({ item_name: '', gross_weight: '', wastage_percent: '', making_charges: '', huid: '' });
   };
 
-  const handleRemoveFromBatch = (id) => {
-      setBatchForm({ ...batchForm, items: batchForm.items.filter(i => i.id !== id) });
-  };
+  const handleRemoveFromBatch = (id) => { setBatchForm({ ...batchForm, items: batchForm.items.filter(i => i.id !== id) }); };
 
   const submitBatch = async () => {
       if(!batchForm.vendor_id) return alert("Select Vendor or 'Shop Stock'");
-      if(batchForm.vendor_id !== 'OWN' && !batchForm.invoice_no) return alert("Invoice No is required for Vendor Stock");
-      if(batchForm.items.length === 0) return alert("Add at least one item");
+      if(batchForm.vendor_id !== 'OWN' && !batchForm.invoice_no) return alert("Invoice No is required");
+      if(batchForm.items.length === 0) return alert("Add items");
       
       try {
           const payload = {
@@ -182,12 +160,8 @@ function InventoryManager() {
               invoice_no: batchForm.invoice_no || 'OWN-STOCK',
               items: batchForm.items
           };
-
           await api.addBatchInventory(payload);
-          alert("Stock Added Successfully!");
-          setShowAddModal(false);
-          setBatchForm({ vendor_id: '', metal_type: productTypes[0]?.name || 'GOLD', invoice_no: '', items: [] });
-          fetchData();
+          alert("Stock Added!"); setShowAddModal(false); setBatchForm({ vendor_id: '', metal_type: productTypes[0]?.name || 'GOLD', invoice_no: '', items: [] }); fetchData();
       } catch(err) { alert(err.message); }
   };
 
@@ -198,16 +172,8 @@ function InventoryManager() {
           <div>
               <h4 className="fw-bold text-dark mb-3">Inventory Manager</h4>
               <ul className="nav nav-pills">
-                  <li className="nav-item">
-                      <button className={`nav-link fw-bold px-4 ${activeTab==='FRESH'?'active':''}`} onClick={()=>{setActiveTab('FRESH'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}>
-                          <i className="bi bi-gem me-2"></i>Fresh Stock
-                      </button>
-                  </li>
-                  <li className="nav-item">
-                      <button className={`nav-link fw-bold px-4 ${activeTab==='OLD'?'active':''}`} onClick={()=>{setActiveTab('OLD'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}>
-                          <i className="bi bi-recycle me-2"></i>Old Metal Stock
-                      </button>
-                  </li>
+                  <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeTab==='FRESH'?'active':''}`} onClick={()=>{setActiveTab('FRESH'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}><i className="bi bi-gem me-2"></i>Fresh Stock</button></li>
+                  <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeTab==='OLD'?'active':''}`} onClick={()=>{setActiveTab('OLD'); setFilterMetal(null); setSelectedIds({}); setSearchQuery('');}}><i className="bi bi-recycle me-2"></i>Old Metal Stock</button></li>
               </ul>
           </div>
           
@@ -215,19 +181,11 @@ function InventoryManager() {
               {/* LIVE SEARCH BAR */}
               <div className="input-group" style={{maxWidth: '250px'}}>
                   <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
-                  <input 
-                      type="text" 
-                      className="form-control" 
-                      placeholder="Search Item / Barcode..." 
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+                  <input type="text" className="form-control" placeholder="Search Item..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
 
               {selectedCount > 0 && (
-                  <button className="btn btn-dark fw-bold" onClick={handlePrintTags}>
-                      <i className="bi bi-printer-fill me-2"></i>Tags ({selectedCount})
-                  </button>
+                  <button className="btn btn-dark fw-bold" onClick={handlePrintTags}><i className="bi bi-printer-fill me-2"></i>Tags ({selectedCount})</button>
               )}
               {activeTab === 'FRESH' && (
                   <>
@@ -236,6 +194,10 @@ function InventoryManager() {
                         <option value="OWN">Shop / Own</option>
                         {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name}</option>)}
                     </select>
+                    {/* NEW BUTTON FOR OWN STOCK DETAILS */}
+                    <button className="btn btn-info text-white fw-bold" onClick={() => navigate('/inventory/own')} title="View Full Own Stock History">
+                        <i className="bi bi-shop me-2"></i>Own Stock Details
+                    </button>
                     <button className="btn btn-primary fw-bold" onClick={() => setShowAddModal(true)}>
                         <i className="bi bi-plus-lg me-2"></i>Add Fresh Stock
                     </button>
@@ -244,7 +206,7 @@ function InventoryManager() {
           </div>
       </div>
 
-      {/* SEARCH STATS SUMMARY */}
+      {/* SEARCH STATS */}
       {searchQuery && (
           <div className="alert alert-info py-2 mb-4 d-flex justify-content-between align-items-center">
               <span><i className="bi bi-search me-2"></i>Results for "<strong>{searchQuery}</strong>"</span>
@@ -252,37 +214,16 @@ function InventoryManager() {
           </div>
       )}
 
-      {/* CLICKABLE STATS CARDS */}
+      {/* STATS CARDS */}
       <div className="row g-3 mb-4">
         {totals.map(t => {
             const isActive = filterMetal === t.type;
             return (
                 <div className="col-md-3" key={t.type}>
-                    <div 
-                        className={`card text-white shadow-sm border-0 cursor-pointer ${isActive ? 'ring-4 ring-offset-2' : ''}`} 
-                        style={{
-                            backgroundColor: t.color || '#6c757d',
-                            cursor: 'pointer',
-                            transform: isActive ? 'scale(1.02)' : 'scale(1)',
-                            transition: 'all 0.2s',
-                            boxShadow: isActive ? '0 0 0 3px rgba(0,0,0,0.2) inset' : 'none',
-                            border: isActive ? '2px solid white' : 'none'
-                        }}
-                        onClick={() => handleCardClick(t.type)}
-                        title={isActive ? "Click to clear filter" : `Filter by ${t.type}`}
-                    >
+                    <div className={`card text-white shadow-sm border-0 cursor-pointer ${isActive ? 'ring-4 ring-offset-2' : ''}`} style={{backgroundColor: t.color || '#6c757d', cursor: 'pointer', transform: isActive ? 'scale(1.02)' : 'scale(1)', transition: 'all 0.2s', boxShadow: isActive ? '0 0 0 3px rgba(0,0,0,0.2) inset' : 'none', border: isActive ? '2px solid white' : 'none'}} onClick={() => handleCardClick(t.type)} title={isActive ? "Click to clear filter" : `Filter by ${t.type}`}>
                         <div className="card-body">
-                            <div className="d-flex justify-content-between align-items-start mb-2">
-                                <h6 className="opacity-75 text-uppercase small mb-0 fw-bold">{t.type}</h6>
-                                {isActive && <i className="bi bi-funnel-fill opacity-50"></i>}
-                            </div>
-                            <div className="d-flex justify-content-between align-items-end">
-                                <div>
-                                    <div className="fs-3 fw-bold lh-1">{t.totalWeight} <span className="fs-6 fw-normal">g</span></div>
-                                    <small className="opacity-75">{t.count} Items</small>
-                                </div>
-                                <i className="bi bi-box-seam fs-1 opacity-25"></i>
-                            </div>
+                            <div className="d-flex justify-content-between align-items-start mb-2"><h6 className="opacity-75 text-uppercase small mb-0 fw-bold">{t.type}</h6>{isActive && <i className="bi bi-funnel-fill opacity-50"></i>}</div>
+                            <div className="d-flex justify-content-between align-items-end"><div><div className="fs-3 fw-bold lh-1">{t.totalWeight} <span className="fs-6 fw-normal">g</span></div><small className="opacity-75">{t.count} Items</small></div><i className="bi bi-box-seam fs-1 opacity-25"></i></div>
                         </div>
                     </div>
                 </div>
@@ -290,42 +231,26 @@ function InventoryManager() {
         })}
       </div>
 
+      {/* TABLE */}
       <div className="card shadow-sm border-0">
         <div className="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 className="mb-0 fw-bold text-secondary">
-                {activeTab === 'FRESH' ? 'Available Fresh Inventory' : 'Available Old Metal (Scrap)'}
-                {filterMetal && <span className="badge bg-secondary ms-2 small">{filterMetal}</span>}
-            </h5>
-            {filterMetal && (
-                <button className="btn btn-sm btn-link text-muted text-decoration-none" onClick={() => setFilterMetal(null)}>
-                    Clear Filter <i className="bi bi-x"></i>
-                </button>
-            )}
+            <h5 className="mb-0 fw-bold text-secondary">{activeTab === 'FRESH' ? 'Available Fresh Inventory' : 'Available Old Metal (Scrap)'} {filterMetal && <span className="badge bg-secondary ms-2 small">{filterMetal}</span>}</h5>
+            {filterMetal && <button className="btn btn-sm btn-link text-muted text-decoration-none" onClick={() => setFilterMetal(null)}>Clear Filter <i className="bi bi-x"></i></button>}
         </div>
-        
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
             <thead className="table-light">
                 <tr>
-                    <th style={{width:'40px'}} className="text-center">
-                        <input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={displayItems.length > 0 && displayItems.every(i => selectedIds[i.id])} />
-                    </th>
+                    <th style={{width:'40px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={displayItems.length > 0 && displayItems.every(i => selectedIds[i.id])} /></th>
                     <th>Item Name</th>
-                    {activeTab === 'FRESH' ? (
-                        <><th>Barcode</th><th>Metal</th><th>Weight</th><th>Wastage</th><th>Source</th></>
-                    ) : (
-                        <><th>Ref / Voucher</th><th>Metal</th><th>Gross Wt</th><th>Net Wt</th><th>Date</th><th>Status</th></>
-                    )}
+                    {activeTab === 'FRESH' ? (<><th>Barcode</th><th>Metal</th><th>Weight</th><th>Wastage</th><th>Source</th></>) : (<><th>Ref / Voucher</th><th>Metal</th><th>Gross Wt</th><th>Net Wt</th><th>Date</th><th>Status</th></>)}
                 </tr>
             </thead>
             <tbody>
               {displayItems.map(item => (
                 <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
-                  <td className="text-center">
-                      <input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} />
-                  </td>
+                  <td className="text-center"><input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} /></td>
                   <td className="fw-bold">{item.item_name}</td>
-                  
                   {activeTab === 'FRESH' ? (
                       <>
                         <td className="small font-monospace text-muted">{item.barcode}</td>
@@ -346,15 +271,13 @@ function InventoryManager() {
                   )}
                 </tr>
               ))}
-              {displayItems.length === 0 && (
-                  <tr><td colSpan="7" className="text-center py-4 text-muted">No items found matching the current filters.</td></tr>
-              )}
+              {displayItems.length === 0 && <tr><td colSpan="7" className="text-center py-4 text-muted">No items found matching the current filters.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Add Stock Modal - Unchanged but included for completeness */}
+      {/* Add Stock Modal */}
       {showAddModal && (
           <div className="modal d-block" style={{backgroundColor:'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog modal-lg">

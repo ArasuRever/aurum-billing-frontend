@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { FaTrash, FaPlus, FaSave, FaCalculator } from 'react-icons/fa';
 
 // Helper: Image to Base64
 const toBase64 = file => new Promise((resolve, reject) => {
@@ -14,7 +15,7 @@ function BulkStockEntry() {
   const navigate = useNavigate();
   const [vendors, setVendors] = useState([]);
   const [masterItems, setMasterItems] = useState([]);
-  const [productTypes, setProductTypes] = useState([]); // NEW: To populate Metal Group dropdown
+  const [productTypes, setProductTypes] = useState([]); 
   
   // Header State
   const [batchDetails, setBatchDetails] = useState({
@@ -34,7 +35,7 @@ function BulkStockEntry() {
             const [vRes, mRes, tRes] = await Promise.all([
                 api.searchVendor(''), 
                 api.getMasterItems(),
-                api.getProductTypes() // Fetch available metals
+                api.getProductTypes()
             ]);
             setVendors(vRes.data);
             setMasterItems(mRes.data);
@@ -52,12 +53,20 @@ function BulkStockEntry() {
     init();
   }, []);
 
+  const fetchMasterItems = async () => {
+      try {
+        const res = await api.getMasterItems();
+        setMasterItems(res.data);
+      } catch (e) { console.error(e); }
+  };
+
   // --- ACTIONS ---
   const handleAddRow = () => {
     setRows(prev => [...prev, {
         id: Date.now(),
         item_name: '',
         stock_type: 'SINGLE',
+        quantity: 1, // Default quantity
         gross_weight: '',
         wastage_percent: '', 
         making_charges: '',
@@ -71,11 +80,23 @@ function BulkStockEntry() {
       if(rows.length > 1) setRows(rows.filter(r => r.id !== id));
   };
 
-  const calculatePure = (gross, val, mode) => {
-      const g = parseFloat(gross) || 0;
-      const v = parseFloat(val) || 0;
-      // Simple Touch Calculation
-      return (g * (v / 100)).toFixed(3);
+  // --- PURITY LOGIC (Same as VendorDetails) ---
+  const togglePurityMode = () => {
+      const newMode = purityMode === 'TOUCH' ? 'WASTAGE' : 'TOUCH';
+      setPurityMode(newMode);
+      // Recalculate all rows based on new mode
+      setRows(rows.map(row => ({
+          ...row,
+          calc_pure: calculatePure(row.gross_weight, row.wastage_percent, newMode)
+      })));
+  };
+
+  const calculatePure = (grossStr, factorStr, mode) => {
+      const gross = parseFloat(grossStr) || 0;
+      const factor = parseFloat(factorStr) || 0;
+      return mode === 'TOUCH' 
+        ? (gross * (factor / 100)).toFixed(3) 
+        : (gross * (1 + (factor / 100))).toFixed(3);
   };
 
   const handleRowChange = (id, field, value) => {
@@ -91,6 +112,7 @@ function BulkStockEntry() {
               );
               if (match) {
                   updated.wastage_percent = match.default_wastage;
+                  updated.calc_pure = calculatePure(updated.gross_weight, match.default_wastage, purityMode);
                   if (match.mc_type === 'FIXED') updated.making_charges = match.mc_value;
               }
           }
@@ -115,29 +137,52 @@ function BulkStockEntry() {
       setRows(rows.map(r => r.id === id ? { ...r, item_image: file } : r));
   };
 
-  // --- VENDOR CHANGE HANDLER (FIXED) ---
   const handleVendorChange = (e) => {
       const val = e.target.value;
       const selectedVendor = vendors.find(v => v.id.toString() === val);
       
       setBatchDetails(prev => {
           let newMetal = prev.metal_type;
-          
-          // Check vendor_type instead of metal_type
-          // If vendor is strictly one type (e.g., 'GOLD' or 'SILVER'), auto-select it.
           if (selectedVendor && selectedVendor.vendor_type && selectedVendor.vendor_type !== 'BOTH') {
-              // Try to find a matching product type (case-insensitive)
               const match = productTypes.find(t => t.name.toUpperCase() === selectedVendor.vendor_type.toUpperCase());
               if(match) newMetal = match.name;
-              else newMetal = selectedVendor.vendor_type; // Fallback
+              else newMetal = selectedVendor.vendor_type;
           }
-          
-          return {
-              ...prev,
-              vendor_id: val,
-              metal_type: newMetal
-          };
+          return { ...prev, vendor_id: val, metal_type: newMetal };
       });
+  };
+
+  // --- AUTO CREATE MASTER ITEMS ---
+  const autoCreateMasterItems = async (itemsToSave) => {
+      const newItems = itemsToSave.filter(stockItem => {
+          if (!stockItem.item_name) return false;
+          const exists = masterItems.some(master => 
+              master.item_name.toLowerCase() === stockItem.item_name.trim().toLowerCase() && 
+              master.metal_type === batchDetails.metal_type
+          );
+          return !exists;
+      });
+
+      if (newItems.length === 0) return;
+
+      // Group by item name to avoid duplicates
+      const uniqueNames = [...new Set(newItems.map(i => i.item_name.trim()))];
+      const referenceItem = newItems[0]; // Use first item for default values
+
+      try {
+          await api.addMasterItemsBulk({
+              item_names: uniqueNames,
+              metal_type: batchDetails.metal_type,
+              calc_method: 'STANDARD',
+              default_wastage: referenceItem.wastage_percent || 0,
+              mc_type: 'FIXED', 
+              mc_value: 0,
+              hsn_code: '' 
+          });
+          await fetchMasterItems(); // Refresh list
+      } catch (err) { 
+          console.warn("Failed to auto-create master items", err); 
+      }
   };
 
   // --- SUBMIT ---
@@ -149,12 +194,17 @@ function BulkStockEntry() {
       if(!window.confirm(`Add ${validRows.length} items to inventory?`)) return;
 
       try {
+          // 1. Auto Create Master Items if needed
+          await autoCreateMasterItems(validRows);
+
+          // 2. Process Items
           const processedItems = await Promise.all(validRows.map(async (r) => {
               let b64 = null;
               if (r.item_image) b64 = await toBase64(r.item_image);
               return {
                   ...r,
                   pure_weight: r.calc_pure,
+                  quantity: r.stock_type === 'BULK' ? (r.quantity || 1) : 1, // Handle Quantity
                   item_image_base64: b64
               };
           }));
@@ -187,8 +237,8 @@ function BulkStockEntry() {
           </div>
           <div className="d-flex gap-2">
             <button className="btn btn-outline-secondary" onClick={() => navigate('/inventory')}>Cancel</button>
-            <button className="btn btn-success fw-bold px-4" onClick={handleSubmit}>
-                <i className="bi bi-check-lg me-2"></i>SAVE BATCH
+            <button className="btn btn-success fw-bold px-4 d-flex align-items-center gap-2" onClick={handleSubmit}>
+                <FaSave /> SAVE BATCH
             </button>
           </div>
       </div>
@@ -203,19 +253,16 @@ function BulkStockEntry() {
                           <option value="">-- Select Source --</option>
                           <option value="OWN" className="fw-bold text-primary">✦ Shop / Own Stock</option>
                           <optgroup label="Vendors">
-                              {/* FIX: Use vendor_type instead of metal_type */}
                               {vendors.map(v => <option key={v.id} value={v.id}>{v.business_name} ({v.vendor_type || 'Mix'})</option>)}
                           </optgroup>
                       </select>
                   </div>
                   <div className="col-md-2">
                       <label className="form-label small fw-bold text-muted">Metal Group</label>
-                      {/* FIX: Map over productTypes instead of hardcoded Gold/Silver */}
                       <select className="form-select fw-bold" value={batchDetails.metal_type} onChange={e => setBatchDetails({...batchDetails, metal_type: e.target.value})}>
                           {productTypes.map(t => (
                               <option key={t.id} value={t.name}>{t.name}</option>
                           ))}
-                          {/* Fallback if list is empty */}
                           {productTypes.length === 0 && <option value="GOLD">GOLD</option>}
                       </select>
                   </div>
@@ -243,11 +290,18 @@ function BulkStockEntry() {
               <table className="table table-bordered align-middle mb-0 text-center">
                   <thead className="table-light text-secondary small text-uppercase">
                       <tr>
-                          <th style={{width:'50px'}}>#</th>
+                          <th style={{width:'40px'}}>#</th>
                           <th style={{width:'25%'}}>Item Name</th>
-                          <th>Type</th>
+                          <th style={{width:'15%'}}>Type</th>
                           <th>Gross Wt</th>
-                          <th style={{width:'100px'}}>Touch %</th>
+                          <th 
+                            style={{width:'100px', cursor:'pointer'}} 
+                            className="bg-warning bg-opacity-10 text-dark"
+                            onClick={togglePurityMode}
+                            title="Click to switch Touch/Wastage"
+                          >
+                              {purityMode === 'TOUCH' ? 'Touch %' : 'Wastage %'} <FaCalculator className="ms-1" size={10}/>
+                          </th>
                           <th>Pure Wt</th>
                           <th>MC (₹)</th>
                           <th>HUID</th>
@@ -273,16 +327,29 @@ function BulkStockEntry() {
                                   </datalist>
                               </td>
                               <td>
-                                  <select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(row.id, 'stock_type', e.target.value)}>
-                                      <option value="SINGLE">Single</option>
-                                      <option value="BULK">Bulk</option>
-                                  </select>
+                                  <div className="d-flex gap-1">
+                                      <select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(row.id, 'stock_type', e.target.value)}>
+                                          <option value="SINGLE">Single</option>
+                                          <option value="BULK">Bulk</option>
+                                      </select>
+                                      {/* QUANTITY INPUT FOR BULK */}
+                                      {row.stock_type === 'BULK' && (
+                                          <input 
+                                            type="number" 
+                                            className="form-control form-control-sm" 
+                                            placeholder="Qty" 
+                                            style={{width:'60px'}}
+                                            value={row.quantity} 
+                                            onChange={e => handleRowChange(row.id, 'quantity', e.target.value)} 
+                                          />
+                                      )}
+                                  </div>
                               </td>
                               <td>
                                   <input type="number" className="form-control form-control-sm" placeholder="0.000" value={row.gross_weight} onChange={e => handleRowChange(row.id, 'gross_weight', e.target.value)} />
                               </td>
-                              <td>
-                                  <input type="number" className="form-control form-control-sm bg-warning bg-opacity-10 text-center" placeholder="92.0" value={row.wastage_percent} onChange={e => handleRowChange(row.id, 'wastage_percent', e.target.value)} />
+                              <td className="bg-warning bg-opacity-10">
+                                  <input type="number" className="form-control form-control-sm text-center fw-bold bg-transparent border-0" placeholder={purityMode === 'TOUCH' ? "92.0" : "8.0"} value={row.wastage_percent} onChange={e => handleRowChange(row.id, 'wastage_percent', e.target.value)} />
                               </td>
                               <td>
                                   <input type="text" className="form-control form-control-sm bg-light text-center border-0 fw-bold text-success" readOnly value={row.calc_pure} />
@@ -298,7 +365,7 @@ function BulkStockEntry() {
                               </td>
                               <td>
                                   <button className="btn btn-link btn-sm text-danger" onClick={() => handleRemoveRow(row.id)} tabIndex="-1">
-                                      <i className="bi bi-x-circle-fill"></i>
+                                      <FaTrash />
                                   </button>
                               </td>
                           </tr>
@@ -308,7 +375,7 @@ function BulkStockEntry() {
           </div>
           <div className="card-footer bg-white text-center py-3">
               <button className="btn btn-outline-primary btn-sm px-4 rounded-pill" onClick={handleAddRow}>
-                  <i className="bi bi-plus-lg me-1"></i> Add Another Row
+                  <FaPlus className="me-1" /> Add Another Row
               </button>
           </div>
       </div>

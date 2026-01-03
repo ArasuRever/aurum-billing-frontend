@@ -22,7 +22,7 @@ export const api = {
   deleteUser: (id) => axiosInstance.delete(`/auth/users/${id}`),
   updateUser: (id, data) => axiosInstance.put(`/auth/users/${id}`, data),
 
-  // --- BACKUP & RESTORE (NEW) ---
+  // --- BACKUP & RESTORE ---
   downloadBackup: () => axiosInstance.get(`/settings/backup`, { responseType: 'blob' }),
   restoreBackup: (file) => {
       const formData = new FormData();
@@ -36,7 +36,7 @@ export const api = {
   addVendor: (data) => axiosInstance.post(`/vendors/add`, data),
   searchVendor: (q) => axiosInstance.get(`/vendors/search?q=${q}`),
   updateVendor: (id, data) => axiosInstance.put(`/vendors/${id}`, data),
-  deleteVendor: (id) => axiosInstance.delete(`/vendors/${id}`), // <--- ADDED THIS LINE
+  deleteVendor: (id, stockAction) => axiosInstance.delete(`/vendors/${id}?stock_action=${stockAction}`),
   getVendors: () => axiosInstance.get(`/vendors/list`),
   addAgent: (formData) => axiosInstance.post(`/vendors/add-agent`, formData),
   getVendorAgents: (id) => axiosInstance.get(`/vendors/${id}/agents`),
@@ -51,8 +51,13 @@ export const api = {
   addBatchInventory: (data) => axiosInstance.post(`/inventory/batch-add`, data),
   getInventory: () => axiosInstance.get(`/inventory/list`),
   getVendorInventory: (id) => axiosInstance.get(`/vendors/${id}/inventory`), 
-  updateInventory: (id, data) => axiosInstance.put(`/inventory/update/${id}`, data),
+  getOwnInventory: () => axiosInstance.get(`/inventory/own/list`), // NEW
+  getOwnSalesHistory: () => axiosInstance.get(`/inventory/own/history`), // NEW
+  updateInventory: (id, data) => axiosInstance.put(`/inventory/update/${id}`, data, {
+      headers: { 'Content-Type': data instanceof FormData ? 'multipart/form-data' : 'application/json' }
+  }),
   deleteInventory: (id) => axiosInstance.delete(`/inventory/${id}`),
+  restoreInventoryItem: (id) => axiosInstance.post(`/inventory/restore/${id}`),
   searchBillingItem: (q) => axiosInstance.get(`/inventory/search?q=${q}`), 
 
   // --- BILLING ---

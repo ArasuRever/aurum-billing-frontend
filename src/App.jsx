@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import VendorManager from './pages/VendorManager';
 import VendorDetails from './pages/VendorDetails';
 import InventoryManager from './pages/InventoryManager'; 
+import OwnStockDetails from './pages/OwnStockDetails'; // NEW IMPORT
 import Billing from './pages/Billing';
 import ShopManager from './pages/ShopManager';
 import ShopDetails from './pages/ShopDetails';
@@ -32,9 +33,6 @@ function App() {
     localStorage.setItem('authToken', newToken);
     localStorage.setItem('user', JSON.stringify(user));
     setToken(newToken);
-    
-    // --- FIX: FORCE REDIRECT TO DASHBOARD ---
-    // This resets the URL to '/' so the Router loads the Dashboard
     window.history.replaceState(null, '', '/'); 
   };
 
@@ -42,7 +40,6 @@ function App() {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
     setToken(null);
-    // Optional: Reset URL on logout too
     window.history.replaceState(null, '', '/');
   };
 
@@ -65,6 +62,7 @@ function App() {
               <Route path="/shops" element={<ShopManager />} />
               <Route path="/shops/:id" element={<ShopDetails />} />
               <Route path="/inventory" element={<InventoryManager />} />
+              <Route path="/inventory/own" element={<OwnStockDetails />} /> {/* NEW ROUTE */}
               <Route path="/add-stock" element={<BulkStockEntry />} />
               <Route path="/customers" element={<CustomerManager />} />
               <Route path="/customers/:phone" element={<CustomerDetails />} />
