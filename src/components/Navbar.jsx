@@ -23,8 +23,15 @@ function Navbar({ onLogout }) {
   };
   const isActive = (path) => location.pathname.startsWith(path) ? 'active fw-bold' : '';
 
+  // --- CUSTOM NAVBAR COLOR SETTINGS ---
+  const navbarStyle = {
+      backgroundColor: '#1e1e1eff', // <--- CHANGE THIS HEX CODE TO YOUR DESIRED COLOR (e.g. #0d6efd for Blue)
+      color: 'white'
+  };
+
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
+    // Removed 'bg-dark' class and added custom 'style={navbarStyle}'
+    <nav className="navbar navbar-expand-lg navbar-dark shadow-sm mb-4" style={navbarStyle}>
       <div className="container-fluid">
         <Link className="navbar-brand fw-bold d-flex align-items-center" to="/">
            {settings.logo ? (
