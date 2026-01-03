@@ -4,143 +4,194 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   if (!data) return null;
   const { 
     customer, items, totals, invoice_id, date, 
-    includeGST, exchangeItems, type = 'TAX INVOICE' 
+    includeGST, exchangeItems, type 
   } = data;
 
   const biz = businessProfile || {};
+  const config = biz.invoice_config || {};
   
+  // Use Defaults
+  const accentColor = config.accent_color || '#d4af37';
+  const showWatermark = config.show_watermark !== false; 
+  const watermarkText = config.watermark_text || 'AURUM';
+  const title = type || config.sales_title || 'TAX INVOICE';
+  const terms = config.sales_terms || '1. Goods once sold will not be taken back.\n2. Subject to Salem Jurisdiction.\n3. E. & O.E.';
+  const footerLeft = config.sales_footer_left || "Customer's Signature";
+  const footerRight = config.sales_footer_right || "Authorized Signatory";
+  const showHSN = config.show_hsn !== false; 
+
   return (
-    <div id="printable-invoice" className="bg-white p-5 mx-auto position-relative" style={{maxWidth: '210mm', minHeight: '297mm', fontSize: '14px', fontFamily: 'Arial, sans-serif'}}>
+    <div id="printable-invoice" className="bg-white p-5 mx-auto position-relative" 
+         style={{
+             maxWidth: '210mm', 
+             minHeight: '297mm', 
+             fontSize: '14px', 
+             fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+             color: '#333'
+         }}>
        
        {/* WATERMARK */}
-       <div className="position-absolute top-50 start-50 translate-middle text-muted opacity-25" style={{fontSize: '10rem', zIndex: 0, transform: 'translate(-50%, -50%) rotate(-45deg)', pointerEvents: 'none'}}>
-           AURUM
-       </div>
+       {showWatermark && (
+           <div className="position-absolute top-50 start-50 translate-middle text-muted opacity-10" 
+                style={{
+                    fontSize: '8rem', 
+                    zIndex: 0, 
+                    transform: 'translate(-50%, -50%) rotate(-45deg)', 
+                    pointerEvents: 'none', 
+                    whiteSpace:'nowrap',
+                    fontWeight: '900',
+                    letterSpacing: '10px'
+                }}>
+               {watermarkText}
+           </div>
+       )}
 
-       {/* HEADER */}
-       <div className="row border-bottom pb-4 align-items-center position-relative" style={{zIndex: 1}}>
-           <div className="col-8">
-               <h1 className="fw-bold text-uppercase" style={{color: '#d4af37'}}>{biz.business_name || 'AURUM JEWELLERY'}</h1>
-               <div className="small text-muted" style={{whiteSpace: 'pre-line'}}>{biz.address || 'Gold Market, Salem'}</div>
-               <div className="small fw-bold mt-1">
-                   Mobile: {biz.contact_number} 
-                   {biz.email && ` | ${biz.email}`}
+       {/* HEADER SECTION */}
+       <div className="d-flex justify-content-between align-items-start mb-5 position-relative" style={{zIndex: 1}}>
+           <div>
+               {biz.logo && <img src={biz.logo} alt="Logo" className="mb-3" style={{maxHeight: '80px', objectFit: 'contain'}} />}
+               <h2 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px'}}>{biz.business_name || 'AURUM JEWELLERY'}</h2>
+               <div className="text-secondary mt-2 small" style={{maxWidth: '300px', lineHeight: '1.5'}}>
+                   {biz.address || 'Gold Market, Salem'}<br/>
+                   <span className="fw-bold text-dark">Mobile:</span> {biz.contact_number} {biz.email && <span>| <span className="fw-bold text-dark">E-Mail:</span> {biz.email}</span>}
+                   {biz.gstin && <div className="mt-1"><span className="badge bg-light text-dark border">GSTIN: {biz.gstin}</span></div>}
                </div>
-               {biz.gstin && <div className="small fw-bold border-top border-warning d-inline-block mt-2 pt-1">GSTIN: {biz.gstin}</div>}
-           </div>
-           <div className="col-4 text-end">
-               {biz.logo && <img src={biz.logo} alt="Logo" style={{maxHeight: '80px'}} />}
-           </div>
-       </div>
-
-       {/* INVOICE META */}
-       <div className="d-flex justify-content-between my-4 align-items-end position-relative" style={{zIndex: 1}}>
-           <div className="border p-3 rounded bg-light" style={{minWidth: '40%'}}>
-               <h6 className="fw-bold text-secondary mb-2">BILLED TO:</h6>
-               <div className="fw-bold fs-5">{customer.name}</div>
-               <div>{customer.phone}</div>
-               <div className="small text-muted">{customer.address}</div>
-               {customer.gstin && <div className="small fw-bold mt-1">Cust GST: {customer.gstin}</div>}
            </div>
            <div className="text-end">
-               <h3 className="fw-bold text-dark mb-0">{type}</h3>
-               <div className="fs-5 text-danger fw-bold">#{invoice_id}</div>
-               <div>Date: {date}</div>
+               <div className="display-6 fw-light text-uppercase mb-2" style={{color: '#aaa'}}>{title}</div>
+               <h4 className="fw-bold m-0" style={{color: accentColor}}>#{invoice_id}</h4>
+               <div className="text-muted fw-bold">{date}</div>
            </div>
        </div>
 
-       {/* ITEMS TABLE */}
-       <table className="table table-bordered border-dark text-center position-relative" style={{zIndex: 1}}>
-          <thead className="bg-secondary text-white">
-              <tr>
-                  <th>#</th>
-                  <th className="text-start">Description / HSN</th>
-                  <th>Gross Wt</th>
-                  <th>V.A / Wastage</th>
-                  <th>Rate</th>
-                  <th className="text-end">Amount</th>
-              </tr>
-          </thead>
-          <tbody>
-             {items.map((item, i) => (
-                <tr key={i}>
-                   <td>{i + 1}</td>
-                   <td className="text-start">
-                       <span className="fw-bold">{item.item_name}</span>
-                       {item.hsn_code && <div className="small text-muted">HSN: {item.hsn_code}</div>}
-                       {item.item_id && <div className="small text-muted" style={{fontSize: '0.7em'}}>Ref: {item.item_id}</div>}
-                   </td>
-                   <td>{item.gross_weight} g</td>
-                   <td>{item.wastage_percent ? `${item.wastage_percent}%` : (item.making_charges || '-')}</td>
-                   <td>{item.rate}</td>
-                   <td className="text-end fw-bold">{parseFloat(item.total).toLocaleString()}</td>
-                </tr>
-             ))}
-             {/* Filler Rows for layout consistency */}
-             {Array.from({ length: Math.max(0, 8 - items.length) }).map((_, i) => (
-                 <tr key={`filler-${i}`} style={{height: '35px'}}><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-             ))}
-          </tbody>
-       </table>
+       {/* CUSTOMER & BILLING INFO */}
+       <div className="row mb-5 position-relative" style={{zIndex: 1}}>
+           <div className="col-6">
+               <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Billed To</div>
+               <h5 className="fw-bold mb-1">{customer.name}</h5>
+               <div className="text-secondary">{customer.phone}</div>
+               <div className="text-secondary small">{customer.address}</div>
+               {customer.gstin && <div className="small fw-bold mt-1 text-dark">GSTIN: {customer.gstin}</div>}
+           </div>
+       </div>
 
-       {/* TOTALS & EXCHANGE */}
-       <div className="row mt-2 position-relative" style={{zIndex: 1}}>
-           <div className="col-7">
+       {/* MODERN ITEMS TABLE */}
+       <div className="mb-4 position-relative" style={{zIndex: 1}}>
+           <table className="table table-borderless align-middle">
+               <thead style={{borderBottom: `2px solid ${accentColor}`}}>
+                   <tr className="text-uppercase small fw-bold" style={{color: accentColor}}>
+                       <th className="py-3 ps-0">Item Description {showHSN && '/ HSN'}</th>
+                       <th className="py-3 text-center">Gross Wt</th>
+                       <th className="py-3 text-center">VA / Wastage</th>
+                       <th className="py-3 text-center">Rate</th>
+                       <th className="py-3 pe-0 text-end">Amount</th>
+                   </tr>
+               </thead>
+               <tbody className="text-secondary">
+                  {items.map((item, i) => (
+                     <tr key={i} style={{borderBottom: '1px solid #f0f0f0'}}>
+                        <td className="py-3 ps-0">
+                            <div className="fw-bold text-dark">{item.item_name}</div>
+                            <div className="d-flex gap-2 small mt-1">
+                                {showHSN && item.hsn_code && <span className="bg-light px-1 rounded">HSN: {item.hsn_code}</span>}
+                                {item.item_id && <span className="text-muted">Ref: {item.item_id}</span>}
+                            </div>
+                        </td>
+                        <td className="py-3 text-center">{parseFloat(item.gross_weight).toFixed(3)} <small>g</small></td>
+                        <td className="py-3 text-center">{item.wastage_percent ? `${item.wastage_percent}%` : (item.making_charges || '-')}</td>
+                        <td className="py-3 text-center">₹{item.rate}</td>
+                        <td className="py-3 pe-0 text-end fw-bold text-dark">₹{parseFloat(item.total).toLocaleString()}</td>
+                     </tr>
+                  ))}
+                  {/* Minimal Filler - just space */}
+                  {items.length < 5 && (
+                      <tr><td colSpan="5" style={{height: `${(5 - items.length) * 50}px`}}></td></tr>
+                  )}
+               </tbody>
+           </table>
+       </div>
+
+       {/* TOTALS & EXCHANGE SECTION */}
+       <div className="row position-relative" style={{zIndex: 1}}>
+           <div className="col-7 pe-5">
                {exchangeItems && exchangeItems.length > 0 && (
-                   <div className="border p-2 small mb-3">
-                       <strong className="text-secondary">EXCHANGE / OLD METAL DETAILS</strong>
-                       <table className="table table-sm table-borderless m-0">
+                   <div className="mb-4">
+                       <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Exchange Details</div>
+                       <table className="table table-sm table-borderless text-secondary m-0">
+                           <tbody>
                            {exchangeItems.map((ex, i) => (
                                <tr key={i}>
-                                   <td>{ex.name}</td>
+                                   <td className="ps-0">{ex.name}</td>
                                    <td>{ex.net_weight}g @ {ex.rate}</td>
-                                   <td className="text-end text-danger">- {parseFloat(ex.total).toLocaleString()}</td>
+                                   <td className="text-end text-danger pe-0">- ₹{parseFloat(ex.total).toLocaleString()}</td>
                                </tr>
                            ))}
+                           </tbody>
                        </table>
+                       <div className="border-bottom my-2 w-50"></div>
                    </div>
                )}
-               <div className="small text-muted fst-italic border p-2 rounded">
-                   <strong>Terms & Conditions:</strong><br/>
-                   1. Goods once sold will not be taken back.<br/>
-                   2. Subject to Salem Jurisdiction.<br/>
-                   3. E. & O.E.
+               
+               <div className="mt-4">
+                   <div className="text-uppercase small fw-bold text-muted mb-2" style={{letterSpacing: '1px'}}>Terms & Conditions</div>
+                   <div className="small text-secondary" style={{whiteSpace:'pre-wrap', lineHeight:'1.6'}}>
+                       {terms}
+                   </div>
                </div>
            </div>
 
-           <div className="col-5">
-               <table className="table table-sm table-bordered border-dark">
-                   <tbody>
-                       <tr><td className="text-end">Taxable Value</td><td className="text-end fw-bold">{totals.grossTotal.toLocaleString()}</td></tr>
-                       {includeGST && (
-                           <>
-                           <tr><td className="text-end">CGST (1.5%)</td><td className="text-end">{totals.cgst.toFixed(2)}</td></tr>
-                           <tr><td className="text-end">SGST (1.5%)</td><td className="text-end">{totals.sgst.toFixed(2)}</td></tr>
-                           </>
-                       )}
-                       {totals.exchangeTotal > 0 && (
-                           <tr><td className="text-end text-success">Less: Exchange</td><td className="text-end text-success">- {totals.exchangeTotal.toLocaleString()}</td></tr>
-                       )}
-                       {totals.totalDiscount > 0 && (
-                           <tr><td className="text-end text-danger">Discount</td><td className="text-end text-danger">- {totals.totalDiscount.toLocaleString()}</td></tr>
-                       )}
-                       <tr className="bg-light border-dark">
-                           <td className="text-end fs-5 fw-bold">GRAND TOTAL</td>
-                           <td className="text-end fs-5 fw-bold text-primary">₹{Math.round(totals.netPayable).toLocaleString()}</td>
-                       </tr>
-                   </tbody>
-               </table>
+           <div className="col-5 ps-4">
+               <div className="d-flex justify-content-between mb-2 text-secondary">
+                   <span>Taxable Value</span>
+                   <span className="fw-bold text-dark">₹{totals.grossTotal.toLocaleString()}</span>
+               </div>
+               {includeGST && (
+                   <>
+                   <div className="d-flex justify-content-between mb-2 text-secondary">
+                       <span>CGST (1.5%)</span>
+                       <span>₹{totals.cgst.toFixed(2)}</span>
+                   </div>
+                   <div className="d-flex justify-content-between mb-2 text-secondary">
+                       <span>SGST (1.5%)</span>
+                       <span>₹{totals.sgst.toFixed(2)}</span>
+                   </div>
+                   </>
+               )}
+               {totals.exchangeTotal > 0 && (
+                   <div className="d-flex justify-content-between mb-2 text-success">
+                       <span>Less: Exchange</span>
+                       <span>- ₹{totals.exchangeTotal.toLocaleString()}</span>
+                   </div>
+               )}
+               {totals.totalDiscount > 0 && (
+                   <div className="d-flex justify-content-between mb-2 text-danger">
+                       <span>Discount</span>
+                       <span>- ₹{totals.totalDiscount.toLocaleString()}</span>
+                   </div>
+               )}
+               
+               <div className="d-flex justify-content-between align-items-center mt-4 pt-3" 
+                    style={{borderTop: `2px solid ${accentColor}`}}>
+                   <span className="fs-5 fw-bold text-uppercase" style={{color: accentColor}}>Grand Total</span>
+                   <span className="fs-3 fw-bold text-dark">₹{Math.round(totals.netPayable).toLocaleString()}</span>
+               </div>
+               <div className="text-end small text-muted mt-1">Inclusive of all taxes</div>
            </div>
        </div>
 
        {/* FOOTER */}
-       <div className="row mt-5 pt-5 align-items-end position-relative" style={{zIndex: 1}}>
-           <div className="col-6 text-center">
-               <div className="border-top border-dark w-75 mx-auto pt-2">Customer's Signature</div>
-           </div>
-           <div className="col-6 text-center">
-               <div className="fw-bold">{biz.business_name}</div>
-               <div className="border-top border-dark w-75 mx-auto pt-2 mt-4">Authorized Signatory</div>
+       <div className="position-absolute bottom-0 start-0 w-100 p-5">
+           <div className="row align-items-end">
+               <div className="col-6">
+                   <div className="text-uppercase small fw-bold text-muted mb-4">Customer Signature</div>
+                   <div className="border-bottom border-secondary" style={{width: '60%'}}></div>
+                   <div className="small text-muted mt-2">{footerLeft}</div>
+               </div>
+               <div className="col-6 text-end">
+                   <div className="fw-bold mb-4">{biz.business_name}</div>
+                   <div className="border-bottom border-secondary d-inline-block" style={{width: '60%'}}></div>
+                   <div className="small text-muted mt-2">{footerRight}</div>
+               </div>
            </div>
        </div>
     </div>

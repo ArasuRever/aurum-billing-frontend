@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { api } from '../api';
 import { BusinessContext } from '../context/BusinessContext';
+import InvoiceTemplate from '../components/InvoiceTemplate';
+import OldMetalReceipt from '../components/OldMetalReceipt'; // Import Added
 
 const MODULES = [
     { key: 'BILLING', label: 'Sales & Billing' },
@@ -21,6 +23,9 @@ function SettingsPage() {
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'superadmin';
 
+  // --- PREVIEW STATE ---
+  const [previewMode, setPreviewMode] = useState('SALES'); // 'SALES' or 'PURCHASE'
+
   // --- BACKUP STATE ---
   const [restoring, setRestoring] = useState(false);
 
@@ -39,10 +44,26 @@ function SettingsPage() {
   const [showAddTab, setShowAddTab] = useState(false);
   const [itemSearch, setItemSearch] = useState('');
 
-  // --- BUSINESS PROFILE STATE ---
+  // --- BUSINESS PROFILE & INVOICE CONFIG ---
   const [bizForm, setBizForm] = useState({ business_name: '', contact_number: '', email: '', license_number: '', address: '', display_preference: 'BOTH' });
   const [bizLogo, setBizLogo] = useState(null);
   const [bizLogoPreview, setBizLogoPreview] = useState(null);
+  const [invoiceConfig, setInvoiceConfig] = useState({
+      // Sales Bill
+      sales_title: 'TAX INVOICE',
+      sales_terms: '1. Goods once sold will not be taken back.\n2. Subject to Salem Jurisdiction.\n3. E. & O.E.',
+      sales_footer_left: "Customer's Signature",
+      sales_footer_right: "Authorized Signatory",
+      show_watermark: true,
+      watermark_text: 'AURUM',
+      show_hsn: true,
+      accent_color: '#d4af37',
+      
+      // Old Metal / Purchase
+      purchase_title: 'PURCHASE VOUCHER',
+      purchase_footer_left: 'Customer Sig',
+      purchase_footer_right: 'Cashier / Manager'
+  });
 
   // --- USER STATE ---
   const [users, setUsers] = useState([]);
@@ -79,6 +100,11 @@ function SettingsPage() {
                   address: res.data.address || '',
                   display_preference: res.data.display_preference || 'BOTH'
               });
+              
+              if (res.data.invoice_config) {
+                  setInvoiceConfig(prev => ({ ...prev, ...res.data.invoice_config }));
+              }
+
               setBizLogoPreview(res.data.logo || null);
           }
       } catch (err) { console.error(err); }
@@ -137,7 +163,21 @@ function SettingsPage() {
   const cancelEdit = () => { setEditingId(null); setEditForm({}); };
   const saveEdit = async () => { try { await api.updateMasterItem(editingId, editForm); setEditingId(null); loadData(); } catch (err) { alert("Failed"); } };
   const handleLogoChange = (e) => { const file = e.target.files[0]; if(file) { setBizLogo(file); setBizLogoPreview(URL.createObjectURL(file)); } };
-  const saveBusinessProfile = async () => { const fd = new FormData(); Object.keys(bizForm).forEach(k => fd.append(k, bizForm[k])); if (bizLogo) fd.append('logo', bizLogo); try { await api.saveBusinessSettings(fd); await refreshSettings(); alert("Saved!"); loadBusinessSettings(); } catch(e) { alert(e.message); } };
+  
+  const saveBusinessProfile = async () => { 
+      const fd = new FormData(); 
+      Object.keys(bizForm).forEach(k => fd.append(k, bizForm[k])); 
+      // Append Invoice Config as JSON String
+      fd.append('invoice_config', JSON.stringify(invoiceConfig));
+      if (bizLogo) fd.append('logo', bizLogo); 
+      try { 
+          await api.saveBusinessSettings(fd); 
+          await refreshSettings(); 
+          alert("Saved!"); 
+          loadBusinessSettings(); 
+      } catch(e) { alert(e.message); } 
+  };
+  
   const filteredItems = items.filter(i => i.metal_type === activeProductTab && i.item_name.toLowerCase().includes(itemSearch.toLowerCase()));
   const handleAddTab = async () => { if(!newTabName) return; try { await api.addProductType({ name: newTabName, formula: '', display_color: '#333333' }); setNewTabName(''); setShowAddTab(false); loadData(); } catch(e) { alert(e.message); } };
   const handleDeleteTab = async () => { if(!window.confirm(`Delete?`)) return; try { await api.deleteProductType(activeTabSettings.id); setActiveProductTab(''); loadData(); } catch(e) { alert("Error"); } };
@@ -149,9 +189,120 @@ function SettingsPage() {
       <ul className="nav nav-pills mb-4 gap-2">
           <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeMainTab === 'PRODUCT' ? 'active' : 'bg-white text-dark border'}`} onClick={() => setActiveMainTab('PRODUCT')}>Products & Billing</button></li>
           <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeMainTab === 'BUSINESS' ? 'active' : 'bg-white text-dark border'}`} onClick={() => setActiveMainTab('BUSINESS')}>Business Profile</button></li>
+          <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeMainTab === 'INVOICE' ? 'active' : 'bg-white text-dark border'}`} onClick={() => setActiveMainTab('INVOICE')}>Invoice Design</button></li>
           {isAdmin && <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeMainTab === 'USERS' ? 'active' : 'bg-white text-dark border'}`} onClick={() => { setActiveMainTab('USERS'); loadUsers(); }}>Users & Staff</button></li>}
           {isAdmin && <li className="nav-item"><button className={`nav-link fw-bold px-4 ${activeMainTab === 'BACKUP' ? 'active' : 'bg-white text-dark border'}`} onClick={() => setActiveMainTab('BACKUP')}>Backup & Restore</button></li>}
       </ul>
+
+      {/* --- INVOICE CONFIG TAB --- */}
+      {activeMainTab === 'INVOICE' && (
+          <div className="row g-4">
+              <div className="col-md-5">
+                  <div className="card shadow-sm border-0 mb-4">
+                      <div className="card-header bg-primary text-white fw-bold">Sales Bill Settings</div>
+                      <div className="card-body">
+                          <div className="mb-3">
+                              <label className="form-label small fw-bold">Invoice Title</label>
+                              <input className="form-control" value={invoiceConfig.sales_title} onChange={e => setInvoiceConfig({...invoiceConfig, sales_title: e.target.value})} />
+                          </div>
+                          <div className="row g-2 mb-3">
+                              <div className="col-md-6">
+                                  <label className="form-label small fw-bold">Accent Color</label>
+                                  <div className="input-group">
+                                      <input type="color" className="form-control form-control-color" value={invoiceConfig.accent_color} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} title="Choose your color" />
+                                      <input type="text" className="form-control" value={invoiceConfig.accent_color} onChange={e => setInvoiceConfig({...invoiceConfig, accent_color: e.target.value})} />
+                                  </div>
+                              </div>
+                              <div className="col-md-6">
+                                  <label className="form-label small fw-bold">Options</label>
+                                  <div className="form-check form-switch">
+                                      <input className="form-check-input" type="checkbox" checked={invoiceConfig.show_hsn} onChange={e => setInvoiceConfig({...invoiceConfig, show_hsn: e.target.checked})} />
+                                      <label className="form-check-label small">Show HSN Col</label>
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="mb-3">
+                              <div className="form-check form-switch">
+                                  <input className="form-check-input" type="checkbox" checked={invoiceConfig.show_watermark} onChange={e => setInvoiceConfig({...invoiceConfig, show_watermark: e.target.checked})} />
+                                  <label className="form-check-label small fw-bold">Enable Watermark</label>
+                              </div>
+                              {invoiceConfig.show_watermark && (
+                                  <input className="form-control mt-2" placeholder="Watermark Text" value={invoiceConfig.watermark_text} onChange={e => setInvoiceConfig({...invoiceConfig, watermark_text: e.target.value})} />
+                              )}
+                          </div>
+                          <div className="mb-3">
+                              <label className="form-label small fw-bold">Terms & Conditions</label>
+                              <textarea className="form-control" rows="4" value={invoiceConfig.sales_terms} onChange={e => setInvoiceConfig({...invoiceConfig, sales_terms: e.target.value})}></textarea>
+                          </div>
+                          <div className="row g-2">
+                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig.sales_footer_left} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_left: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig.sales_footer_right} onChange={e => setInvoiceConfig({...invoiceConfig, sales_footer_right: e.target.value})} /></div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="card shadow-sm border-0">
+                      <div className="card-header bg-secondary text-white fw-bold">Purchase / Scrap Bill Settings</div>
+                      <div className="card-body">
+                           <div className="mb-3">
+                              <label className="form-label small fw-bold">Voucher Title</label>
+                              <input className="form-control" value={invoiceConfig.purchase_title} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_title: e.target.value})} />
+                          </div>
+                           <div className="row g-2">
+                              <div className="col-6"><label className="small fw-bold">Footer Left</label><input className="form-control form-control-sm" value={invoiceConfig.purchase_footer_left} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_left: e.target.value})} /></div>
+                              <div className="col-6"><label className="small fw-bold">Footer Right</label><input className="form-control form-control-sm" value={invoiceConfig.purchase_footer_right} onChange={e => setInvoiceConfig({...invoiceConfig, purchase_footer_right: e.target.value})} /></div>
+                          </div>
+                      </div>
+                  </div>
+                  <button className="btn btn-success fw-bold w-100 mt-4 p-3" onClick={saveBusinessProfile}><i className="bi bi-save me-2"></i>SAVE ALL SETTINGS</button>
+              </div>
+
+              {/* LIVE PREVIEW AREA */}
+              <div className="col-md-7">
+                  <div className="card shadow border-0 bg-light h-100">
+                      <div className="card-header d-flex justify-content-between align-items-center bg-white border-bottom">
+                           <span className="fw-bold text-muted">LIVE PREVIEW</span>
+                           <div className="btn-group btn-group-sm">
+                               <button className={`btn ${previewMode==='SALES'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setPreviewMode('SALES')}>Sales Invoice</button>
+                               <button className={`btn ${previewMode==='PURCHASE'?'btn-dark':'btn-outline-dark'}`} onClick={()=>setPreviewMode('PURCHASE')}>Purchase Voucher</button>
+                           </div>
+                      </div>
+                      <div className="card-body d-flex justify-content-center overflow-auto">
+                          <div style={{transform: 'scale(0.65)', transformOrigin: 'top center', minWidth:'210mm'}}>
+                              {previewMode === 'SALES' ? (
+                                  <InvoiceTemplate 
+                                      data={{
+                                          customer: { name: 'John Doe', phone: '9876543210', address: '123, Main St, Salem' },
+                                          items: [
+                                              { item_name: 'Gold Ring', gross_weight: 4.5, wastage_percent: 12, rate: 6500, total: 32760 },
+                                              { item_name: 'Silver Chain', gross_weight: 15.2, wastage_percent: 0, rate: 85, total: 1292 }
+                                          ],
+                                          totals: { grossTotal: 34052, cgst: 510.78, sgst: 510.78, netPayable: 35074 },
+                                          invoice_id: 'INV-001',
+                                          date: new Date().toLocaleDateString(),
+                                          includeGST: true
+                                      }}
+                                      businessProfile={{ ...bizForm, logo: bizLogoPreview, invoice_config: invoiceConfig }}
+                                  />
+                              ) : (
+                                  <OldMetalReceipt 
+                                      data={{
+                                          customer: { customer_name: 'Jane Doe', mobile: '9876543210' },
+                                          voucherNo: 'V-2023001',
+                                          items: [
+                                              { item_name: 'Old Gold Chain', metal_type: 'GOLD', gross_weight: 10.000, less_weight: 0.500, net_weight: 9.500, rate: 6000, amount: 57000 }
+                                          ],
+                                          totals: { totalAmount: 57000, gstAmount: 0, netPayout: 57000 }
+                                      }}
+                                      businessProfile={{ ...bizForm, logo: bizLogoPreview, invoice_config: invoiceConfig }}
+                                  />
+                              )}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* --- BACKUP TAB --- */}
       {activeMainTab === 'BACKUP' && isAdmin && (
