@@ -1,14 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Container, Table, Button, Form, InputGroup, Row, Col, Badge, Modal, Alert } from 'react-bootstrap';
+import { Container, Table, Button, Form, InputGroup, Badge, Modal, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar, FaUndo } from 'react-icons/fa';
+import { FaTrash, FaEye, FaSearch, FaFileInvoiceDollar, FaUndo, FaPrint } from 'react-icons/fa';
 import InvoiceTemplate from '../components/InvoiceTemplate';
 import { useReactToPrint } from 'react-to-print';
 import { useBusiness } from '../context/BusinessContext';
 
 const BillHistory = () => {
+    // 1. Get Settings
     const { settings } = useBusiness();
+    
     const navigate = useNavigate();
     const [bills, setBills] = useState([]);
     const [filteredBills, setFilteredBills] = useState([]);
@@ -16,15 +18,14 @@ const BillHistory = () => {
     const [loading, setLoading] = useState(true);
 
     // --- INVOICE PRINTING STATES ---
-    const [selectedBill, setSelectedBill] = useState(null);
+    const [selectedBillData, setSelectedBillData] = useState(null);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-    const [invoiceItems, setInvoiceItems] = useState([]);
     const componentRef = useRef();
 
     // --- NEIGHBOUR RESTORE MODAL STATES ---
     const [showNeighbourModal, setShowNeighbourModal] = useState(false);
     const [billToDelete, setBillToDelete] = useState(null);
-    const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); // 'REVERT_DEBT' or 'TAKE_OWNERSHIP'
+    const [restoreMode, setRestoreMode] = useState('REVERT_DEBT'); 
 
     useEffect(() => {
         fetchHistory();
@@ -65,20 +66,65 @@ const BillHistory = () => {
             await api.deleteBill(billToDelete.id, restoreMode); 
             setShowNeighbourModal(false);
             setBillToDelete(null);
-            fetchHistory(); // Refresh list
+            fetchHistory(); 
         } catch (err) {
             console.error(err);
             alert("Failed to delete bill: " + (err.response?.data?.error || err.message));
         }
     };
 
-    // --- VIEW / PRINT LOGIC ---
+    // --- VIEW / PRINT LOGIC (FIXED MAPPING) ---
     const handleViewInvoice = async (bill) => {
         try {
             setLoading(true);
-            const res = await api.getInvoiceDetails(bill.id); // Returns { sale, items }
-            setSelectedBill(res.data.sale);
-            setInvoiceItems(res.data.items);
+            // 2. Fetch Details including Exchange Items
+            const res = await api.getInvoiceDetails(bill.id); 
+            const { sale, items, exchangeItems } = res.data;
+
+            // 3. MAP DATABASE FIELDS TO TEMPLATE EXPECTATIONS
+            const formattedItems = items.map(item => ({
+                item_name: item.item_name,
+                gross_weight: item.sold_weight, // Database uses sold_weight
+                rate: item.sold_rate,
+                total: item.total_item_price,
+                wastage_percent: item.making_charges_collected || 0, // Fallback
+                hsn_code: item.hsn_code,
+                item_id: item.item_id
+            }));
+
+            const formattedExchange = (exchangeItems || []).map(ex => ({
+                name: ex.item_name,
+                gross_weight: ex.gross_weight,
+                less_weight: ex.less_weight,
+                net_weight: ex.net_weight,
+                rate: ex.rate,
+                total: ex.total_amount
+            }));
+
+            const formattedData = {
+                invoice_id: sale.invoice_number,
+                date: sale.created_at || sale.invoice_date, // Handle different DB date columns
+                customer: {
+                    name: sale.customer_name,
+                    phone: sale.customer_phone,
+                    address: sale.customer_address || '', 
+                    gstin: sale.cust_gstin || ''
+                },
+                items: formattedItems,
+                totals: {
+                    grossTotal: parseFloat(sale.gross_total || 0), // Use gross_total for taxable value
+                    cgst: parseFloat(sale.cgst_amount || 0),
+                    sgst: parseFloat(sale.sgst_amount || 0),
+                    totalDiscount: parseFloat(sale.discount || 0),
+                    exchangeTotal: parseFloat(sale.exchange_total || 0),
+                    netPayable: parseFloat(sale.final_amount || 0)
+                },
+                includeGST: sale.is_gst_bill, // Ensure boolean is passed
+                exchangeItems: formattedExchange,
+                type: 'TAX INVOICE'
+            };
+
+            setSelectedBillData(formattedData);
             setShowInvoiceModal(true);
             setLoading(false);
         } catch (err) {
@@ -91,6 +137,14 @@ const BillHistory = () => {
     const handlePrint = useReactToPrint({
         content: () => componentRef.current,
     });
+
+    // 4. MAP BUSINESS SETTINGS
+    const mappedBusinessProfile = {
+        ...settings,
+        business_name: settings.name,      // Map 'name' to 'business_name'
+        contact_number: settings.phone,    // Map 'phone' to 'contact_number'
+        // Logo is usually mapped correctly if it's 'logo' in both
+    };
 
     return (
         <Container fluid className="p-3">
@@ -134,7 +188,7 @@ const BillHistory = () => {
                             filteredBills.map(bill => (
                                 <tr key={bill.id}>
                                     <td className="fw-bold text-primary">{bill.invoice_number}</td>
-                                    <td>{new Date(bill.created_at).toLocaleDateString()}</td>
+                                    <td>{new Date(bill.created_at).toLocaleDateString('en-IN')}</td>
                                     <td>
                                         <div>{bill.customer_name}</div>
                                         <small className="text-muted">{bill.customer_phone}</small>
@@ -146,13 +200,12 @@ const BillHistory = () => {
                                         </Badge>
                                     </td>
                                     <td className="text-center">
-                                        {/* --- FIXED RETURN BUTTON --- */}
+                                        {/* RETURN BUTTON */}
                                         <Button 
                                             variant="outline-warning" 
                                             size="sm" 
                                             className="me-2" 
                                             title="Return / Exchange"
-                                            // Updated Path to match App.jsx
                                             onClick={() => navigate(`/billing/return?saleId=${bill.invoice_number || bill.id}`)}
                                         >
                                             <FaUndo />
@@ -189,26 +242,29 @@ const BillHistory = () => {
             {/* --- INVOICE VIEW MODAL --- */}
             <Modal show={showInvoiceModal} onHide={() => setShowInvoiceModal(false)} size="lg" centered>
                 <Modal.Header closeButton>
-                    <Modal.Title>Invoice Details</Modal.Title>
+                    <Modal.Title>Invoice Preview</Modal.Title>
                 </Modal.Header>
-                <Modal.Body style={{ backgroundColor: '#f5f5f5' }}>
-                    {selectedBill && (
-                        <div ref={componentRef}>
-                            <InvoiceTemplate 
-                                sale={selectedBill} 
-                                items={invoiceItems} 
-                                business={settings} 
-                            />
+                <Modal.Body style={{ backgroundColor: '#e9ecef', overflow: 'hidden' }}>
+                    {selectedBillData && (
+                        <div className="d-flex justify-content-center" style={{transform: 'scale(0.85)', transformOrigin: 'top center'}}>
+                            <div ref={componentRef} className="shadow-lg">
+                                <InvoiceTemplate 
+                                    data={selectedBillData} 
+                                    businessProfile={mappedBusinessProfile} // Passed Correctly Mapped Profile
+                                />
+                            </div>
                         </div>
                     )}
                 </Modal.Body>
                 <Modal.Footer>
                     <Button variant="secondary" onClick={() => setShowInvoiceModal(false)}>Close</Button>
-                    <Button variant="primary" onClick={handlePrint}>Print Invoice</Button>
+                    <Button variant="primary" onClick={handlePrint}>
+                        <FaPrint className="me-2"/> Print Invoice
+                    </Button>
                 </Modal.Footer>
             </Modal>
 
-            {/* --- NEIGHBOUR RESTORE MODAL (SAFE DELETE) --- */}
+            {/* --- NEIGHBOUR RESTORE MODAL --- */}
             <Modal show={showNeighbourModal} onHide={() => setShowNeighbourModal(false)} centered>
                 <Modal.Header closeButton className="bg-danger text-white">
                     <Modal.Title>⚠ Void Bill & Restore Stock</Modal.Title>

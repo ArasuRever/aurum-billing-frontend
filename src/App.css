@@ -40,3 +40,10 @@
 .read-the-docs {
   color: #888;
 }
+
+/* This style applies ONLY when printing */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

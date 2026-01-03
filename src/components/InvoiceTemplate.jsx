@@ -13,7 +13,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
   // --- CONFIGURATION ---
   const accentColor = config.accent_color || '#d4af37';
   const showWatermark = config.show_watermark !== false; 
-  const watermarkText = config.watermark_text || 'AURUM';
+  const watermarkText = config.watermark_text || 'SRI KUBERAN JEWELLERY';
   const title = type || config.sales_title || 'TAX INVOICE';
   const terms = config.sales_terms || '1. Goods once sold will not be taken back.\n2. Subject to Salem Jurisdiction.\n3. E. & O.E.';
   const footerLeft = config.sales_footer_left || "Customer's Signature";

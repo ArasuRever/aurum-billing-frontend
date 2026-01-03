@@ -3,6 +3,7 @@ import { api } from '../api';
 import InvoiceTemplate from '../components/InvoiceTemplate';
 
 // --- PRINT CSS ---
+// The .no-print class here ensures elements with that class are hidden during printing
 const printStyles = `
   @media print {
     body * { visibility: hidden; }
@@ -31,7 +32,7 @@ function Billing() {
     item_image: null, neighbour_id: null, calc_method: 'STANDARD', fixed_price: 0, stock_type: 'SINGLE'
   });
 
-  // ... (Exchange, Search, Cart states same as before) ...
+  // --- EXCHANGE & CART STATE ---
   const [exchangeEntry, setExchangeEntry] = useState({
     name: '', metal_type: 'GOLD', gross_weight: '', 
     less_percent: '', less_weight: '', net_weight: 0, 
@@ -62,7 +63,7 @@ function Billing() {
     return () => document.head.removeChild(styleSheet);
   }, []);
 
-  // ... (Search Logic same as before) ...
+  // --- SEARCH LOGIC ---
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (customerSearch.length > 2 && !selectedCustomer) {
@@ -203,7 +204,6 @@ function Billing() {
   const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
   const clearCart = () => { if(window.confirm("Clear cart?")) { setCart([]); setPayment({cash:'', online:''}); } };
 
-  // ... (Calculation, Exchange, and Totals logic same as before) ...
   const calculateItemTotal = (item) => {
     const weight = parseFloat(item.gross_weight) || 0;
     const wastageWt = parseFloat(item.wastage_weight) || 0; 
@@ -316,10 +316,9 @@ function Billing() {
 
   return (
     <div className="container-fluid pb-5">
-      {/* ... (Customer and Search sections unchanged) ... */}
+      {/* 1. CUSTOMER SEARCH & DETAILS */}
       <div className="row g-3">
         <div className="col-md-9">
-          {/* 1. CUSTOMER SEARCH */}
           <div className="row g-3 mb-3">
              {!selectedCustomer ? (
                  <div className="col-md-12">
@@ -399,17 +398,49 @@ function Billing() {
             </div>
           </div>
 
-          {/* 3. CART TABLE */}
+          {/* 3. CART TABLE - UPDATED WITH REF ID COLUMN */}
           <div className="card shadow-sm border-0 mb-3">
              <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
                 <thead className="table-light small text-center">
-                  <tr><th style={{width: '20%'}}>Item</th><th style={{width: '8%'}}>Weight</th><th style={{width:'8%'}}>Qty</th><th style={{width: '18%'}}>Wastage</th><th style={{width: '10%'}}>MC</th><th style={{width: '10%'}}>Rate</th><th style={{width: '10%'}}>Disc</th><th style={{width: '15%'}}>Total</th><th style={{width: '5%'}}></th></tr>
+                  <tr>
+                    <th style={{width: '20%'}}>Item</th>
+                    
+                    {/* --- NEW COLUMN HEADER: Visible on screen, Hidden on print --- */}
+                    <th className="no-print" style={{width: '10%'}}>Ref / Source</th>
+                    {/* ------------------------------------------------------------- */}
+                    
+                    <th style={{width: '8%'}}>Weight</th>
+                    <th style={{width:'8%'}}>Qty</th>
+                    <th style={{width: '18%'}}>Wastage</th>
+                    <th style={{width: '10%'}}>MC</th>
+                    <th style={{width: '10%'}}>Rate</th>
+                    <th style={{width: '10%'}}>Disc</th>
+                    <th style={{width: '15%'}}>Total</th>
+                    <th style={{width: '5%'}}></th>
+                  </tr>
                 </thead>
                 <tbody>
                   {cart.map((item, i) => (
                     <tr key={item.unique_key || i} className="text-center">
                       <td className="text-start"><div className="fw-bold text-truncate">{item.item_name}</div></td>
+                      
+                      {/* --- NEW COLUMN DATA: Visible on screen, Hidden on print --- */}
+                      <td className="no-print align-middle">
+                          <div className="d-flex flex-column" style={{lineHeight: '1.2'}}>
+                              {/* Show Barcode or ID */}
+                              <small className="text-muted" style={{fontSize: '0.7rem'}}>
+                                {item.barcode ? `Bar: ${item.barcode}` : `ID: ${item.item_id || '-'}`}
+                              </small>
+                              {/* Show Neighbor Shop Badge if exists */}
+                              {item.neighbour_id && (
+                                <span className="badge bg-warning text-dark mt-1" style={{fontSize: '0.65rem', width: 'fit-content', margin: '0 auto'}}>
+                                  Shop: {item.neighbour_id}
+                                </span>
+                              )}
+                          </div>
+                      </td>
+                      {/* ----------------------------------------------------------- */}
                       
                       {/* EDITABLE WEIGHT FOR BULK ITEMS */}
                       <td className="fw-bold">
@@ -444,13 +475,12 @@ function Billing() {
                       <td><button className="btn btn-sm text-danger" onClick={() => removeFromCart(i)}><i className="bi bi-x-lg"></i></button></td>
                     </tr>
                   ))}
-                  {cart.length===0 && <tr><td colSpan="9" className="text-center py-5 text-muted">Cart is empty</td></tr>}
+                  {cart.length===0 && <tr><td colSpan="10" className="text-center py-5 text-muted">Cart is empty</td></tr>}
                 </tbody>
               </table>
-            </div>
+             </div>
           </div>
 
-          {/* ... (Exchange, Summary, Modals same as before) ... */}
           {/* 4. OLD ITEM EXCHANGE */}
           <div className="card shadow-sm border-0 mb-3 bg-light">
              <div className="card-header bg-secondary text-white py-2"><span className="small fw-bold"><i className="bi bi-arrow-repeat me-2"></i>Old Item Exchange</span></div>
@@ -539,22 +569,22 @@ function Billing() {
       {/* PAYMENT CONFIRMATION MODAL */}
       {showPaymentModal && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
-             <div className="modal-dialog">
-                <div className="modal-content">
-                    <div className="modal-header bg-success text-white">
-                        <h5 className="modal-title fw-bold"><i className="bi bi-wallet2 me-2"></i>Payment Confirmation</h5>
-                        <button className="btn-close btn-close-white" onClick={() => setShowPaymentModal(false)}></button>
-                    </div>
-                    <div className="modal-body">
-                        <div className="card bg-light border-0 mb-3"><div className="card-body text-center py-2"><small className="text-muted">Total Payable Amount</small><h2 className="text-success fw-bold m-0">₹{netPayable.toLocaleString()}</h2></div></div>
-                        <div className="mb-3"><label className="form-label fw-bold small text-muted">Cash Received</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.cash} onChange={e => setPayment({...payment, cash: e.target.value})} autoFocus /></div></div>
-                        <div className="mb-3"><label className="form-label fw-bold small text-muted">Online Payment</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.online} onChange={e => setPayment({...payment, online: e.target.value})} /></div></div>
-                        <div className={`alert ${currentBalance > 0 ? 'alert-danger' : 'alert-success'} d-flex justify-content-between align-items-center mb-0`}><span className="fw-bold small">{currentBalance > 0 ? 'BALANCE PENDING (CREDIT)' : 'FULL PAYMENT DONE'}</span><span className="fw-bold fs-5">₹{currentBalance > 0 ? currentBalance.toLocaleString() : '0'}</span></div>
-                        {currentBalance > 0 && <small className="text-danger d-block mt-1 text-center">* This amount will be added to Customer's Pending Balance</small>}
-                    </div>
-                    <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Back</button><button className="btn btn-success fw-bold px-4" onClick={finalizeBill}>GENERATE BILL & PRINT</button></div>
-                </div>
-             </div>
+              <div className="modal-dialog">
+                 <div className="modal-content">
+                     <div className="modal-header bg-success text-white">
+                         <h5 className="modal-title fw-bold"><i className="bi bi-wallet2 me-2"></i>Payment Confirmation</h5>
+                         <button className="btn-close btn-close-white" onClick={() => setShowPaymentModal(false)}></button>
+                     </div>
+                     <div className="modal-body">
+                         <div className="card bg-light border-0 mb-3"><div className="card-body text-center py-2"><small className="text-muted">Total Payable Amount</small><h2 className="text-success fw-bold m-0">₹{netPayable.toLocaleString()}</h2></div></div>
+                         <div className="mb-3"><label className="form-label fw-bold small text-muted">Cash Received</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.cash} onChange={e => setPayment({...payment, cash: e.target.value})} autoFocus /></div></div>
+                         <div className="mb-3"><label className="form-label fw-bold small text-muted">Online Payment</label><div className="input-group"><span className="input-group-text">₹</span><input type="number" className="form-control fw-bold" value={payment.online} onChange={e => setPayment({...payment, online: e.target.value})} /></div></div>
+                         <div className={`alert ${currentBalance > 0 ? 'alert-danger' : 'alert-success'} d-flex justify-content-between align-items-center mb-0`}><span className="fw-bold small">{currentBalance > 0 ? 'BALANCE PENDING (CREDIT)' : 'FULL PAYMENT DONE'}</span><span className="fw-bold fs-5">₹{currentBalance > 0 ? currentBalance.toLocaleString() : '0'}</span></div>
+                         {currentBalance > 0 && <small className="text-danger d-block mt-1 text-center">* This amount will be added to Customer's Pending Balance</small>}
+                     </div>
+                     <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowPaymentModal(false)}>Back</button><button className="btn btn-success fw-bold px-4" onClick={finalizeBill}>GENERATE BILL & PRINT</button></div>
+                 </div>
+              </div>
           </div>
       )}
 

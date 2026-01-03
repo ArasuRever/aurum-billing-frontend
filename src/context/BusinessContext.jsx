@@ -5,7 +5,7 @@ export const BusinessContext = createContext();
 
 export const BusinessProvider = ({ children }) => {
     const [settings, setSettings] = useState({
-        name: 'AURUM BILLING',
+        name: 'Sri Kuberan Jewellery',
         logo: null,
         address: '',
         phone: ''
