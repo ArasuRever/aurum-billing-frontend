@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useReactToPrint } from 'react-to-print'; 
 import BarcodePrintComponent from '../components/BarcodePrintComponent'; 
+import { FaTrash } from 'react-icons/fa'; // Import Trash Icon
 
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -38,6 +39,9 @@ function VendorDetails() {
   const [restockForm, setRestockForm] = useState({ gross_weight: '', quantity: '', invoice_no: '', wastage_percent: '' });
   const [historyItem, setHistoryItem] = useState(null);
   const [itemHistory, setItemHistory] = useState([]);
+
+  // Delete Modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState({});
   const printRef = useRef();
@@ -154,6 +158,17 @@ function VendorDetails() {
       }
   };
 
+  // --- DELETE VENDOR LOGIC ---
+  const handleDelete = async () => {
+    try {
+        await api.deleteVendor(id);
+        setShowDeleteModal(false);
+        navigate('/vendors');
+    } catch (err) {
+        alert("Failed to delete vendor: " + (err.response?.data?.error || err.message));
+    }
+  };
+
   // --- HISTORY LOGIC ---
   const openHistoryModal = async (item) => {
       setHistoryItem(item);
@@ -165,7 +180,6 @@ function VendorDetails() {
       }
   };
 
-  // ... (Other handlers unchanged) ...
   const handleUpdateVendor = async () => { try { await api.updateVendor(id, editVendorForm); alert('Vendor Updated'); setShowEditVendor(false); loadAllData(); } catch (err) { alert('Update failed'); } };
   
   const handleSaveAgent = async () => {
@@ -335,20 +349,32 @@ function VendorDetails() {
 
   return (
     <div className="container-fluid pb-5">
-      {/* ... (Header and Add Stock Mode unchanged) ... */}
+      {/* HEADER SECTION WITH DELETE BUTTON */}
       <div className="d-flex justify-content-between align-items-center mb-3">
         <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/vendors')}><i className="bi bi-arrow-left me-1"></i> Back</button>
         <div className="d-flex gap-2">
+            {/* SEARCH */}
             {viewMode === 'overview' && (
                 <div className="input-group input-group-sm" style={{width: '250px'}}>
                     <span className="input-group-text bg-white border-end-0"><i className="bi bi-search"></i></span>
                     <input className="form-control border-start-0" placeholder="Search Items..." value={itemSearch} onChange={e => setItemSearch(e.target.value)} />
                 </div>
             )}
+            
+            {/* VIEW TOGGLE */}
             <div className="btn-group">
                 <button className={`btn ${viewMode === 'overview' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setViewMode('overview')}>Dashboard</button>
                 <button className={`btn ${viewMode === 'add_stock' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={initStockForm}>Add Stock</button>
             </div>
+
+            {/* DELETE BUTTON */}
+            <button 
+                onClick={() => setShowDeleteModal(true)}
+                className="btn btn-outline-danger d-flex align-items-center gap-1"
+                title="Delete Vendor"
+            >
+                <FaTrash /> <span className="d-none d-md-inline">Delete</span>
+            </button>
         </div>
       </div>
 
@@ -496,7 +522,7 @@ function VendorDetails() {
                         </table>
                     </div>
                 </div>
-                {/* SOLD HISTORY TABLE (UPDATED) */}
+                {/* SOLD HISTORY TABLE */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
@@ -511,7 +537,7 @@ function VendorDetails() {
                                     <th>Date</th>
                                     <th>Image</th>
                                     <th>Details</th>
-                                    <th>Qty</th> {/* ADDED */}
+                                    <th>Qty</th>
                                     <th>Wt</th>
                                     <th>Status</th>
                                 </tr>
@@ -523,7 +549,7 @@ function VendorDetails() {
                                         <td className="small text-muted">{new Date(item.created_at).toLocaleDateString()}</td>
                                         <td>{item.item_image && <img src={item.item_image} className="rounded border" style={{width:'35px',height:'35px',objectFit:'cover',filter:'grayscale(100%)'}} />}</td>
                                         <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div></td>
-                                        <td className="fw-bold text-center">{item.quantity || 1}</td> {/* ADDED */}
+                                        <td className="fw-bold text-center">{item.quantity || 1}</td>
                                         <td className="fw-bold">{item.gross_weight}g</td>
                                         <td>
                                             {item.status === 'LENT' ? 
@@ -540,7 +566,7 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-3">
-                 {/* Right Column: Ledger (Code Unchanged) */}
+                 {/* Right Column: Ledger */}
                  <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                     <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
                     <div className="display-6 fw-bold">{parseFloat(vendor.balance_pure_weight || 0).toFixed(3)} g</div>
@@ -577,6 +603,36 @@ function VendorDetails() {
                    </div>
                  </div>
              </div>
+        </div>
+      )}
+
+      {/* --- CONFIRM DELETE MODAL --- */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{position:'fixed', top:0, left:0, width:'100%', height:'100%', backgroundColor:'rgba(0,0,0,0.5)', zIndex:1050, display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <div className="bg-white p-4 rounded shadow-lg" style={{backgroundColor:'white', padding:'20px', borderRadius:'8px', width:'400px', maxWidth:'90%'}}>
+                <h4 className="text-danger fw-bold mb-3">Confirm Deletion</h4>
+                <p className="mb-4">
+                    Are you sure you want to delete <strong>{vendor.business_name}</strong>?
+                    <br/><br/>
+                    <span className="text-danger small fw-bold">
+                        ⚠ This will delete the vendor and REMOVE all their {availableItems.length} available items from stock.
+                    </span>
+                </p>
+                <div className="d-flex justify-content-end gap-2">
+                    <button 
+                        onClick={() => setShowDeleteModal(false)}
+                        className="btn btn-light"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleDelete}
+                        className="btn btn-danger"
+                    >
+                        Confirm Delete
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 
@@ -638,7 +694,7 @@ function VendorDetails() {
           </div>
       )}
 
-      {/* ... (Other modals kept for brevity: ShowManageAgents, ShowEditVendor, ShowEditItem, PrintComponent) ... */}
+      {/* Manage Agents Modal */}
       {showManageAgents && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">

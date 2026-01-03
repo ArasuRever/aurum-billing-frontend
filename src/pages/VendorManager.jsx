@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { FaTrash } from 'react-icons/fa'; // Import Trash Icon
 
 function VendorManager() {
   const navigate = useNavigate();
@@ -12,6 +13,9 @@ function VendorManager() {
   const [showAddVendor, setShowAddVendor] = useState(false);
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
+  
+  // NEW: Delete Modal State
+  const [deleteTarget, setDeleteTarget] = useState(null); 
 
   // --- FORMS ---
   const [vendorForm, setVendorForm] = useState({ 
@@ -86,6 +90,19 @@ function VendorManager() {
     } catch (err) { alert('Error adding agent'); }
   };
 
+  // --- DELETE HANDLER ---
+  const handleDeleteConfirm = async () => {
+      if (!deleteTarget) return;
+      try {
+          await api.deleteVendor(deleteTarget.id);
+          // Remove locally to avoid full refetch if you prefer
+          setVendors(vendors.filter(v => v.id !== deleteTarget.id));
+          setDeleteTarget(null);
+      } catch (err) {
+          alert("Failed to delete: " + (err.response?.data?.error || err.message));
+      }
+  };
+
   // --- STOCK HANDLERS ---
   const handleAddItemToBatch = () => {
       if(!tempItem.item_name || !tempItem.gross_weight) return alert("Enter Item Name and Weight");
@@ -158,8 +175,8 @@ function VendorManager() {
             </thead>
             <tbody>
               {vendors.map((vendor) => (
-                <tr key={vendor.id} style={{cursor: 'pointer'}} onClick={() => navigate(`/vendors/${vendor.id}`)}>
-                  <td>
+                <tr key={vendor.id}>
+                  <td style={{cursor: 'pointer'}} onClick={() => navigate(`/vendors/${vendor.id}`)}>
                     <div className="fw-bold text-primary">{vendor.business_name}</div>
                     <div className="small text-muted" style={{fontSize: '0.75rem'}}>ID: {vendor.id}</div>
                   </td>
@@ -174,9 +191,14 @@ function VendorManager() {
                     {vendor.balance_pure_weight} g
                   </td>
                   <td>
-                    <button className="btn btn-sm btn-outline-primary">
-                      View Details <i className="bi bi-arrow-right ms-1"></i>
-                    </button>
+                    <div className="d-flex gap-2">
+                        <button className="btn btn-sm btn-outline-primary" onClick={() => navigate(`/vendors/${vendor.id}`)}>
+                          View <i className="bi bi-arrow-right"></i>
+                        </button>
+                        <button className="btn btn-sm btn-outline-danger" onClick={() => setDeleteTarget(vendor)}>
+                          <FaTrash />
+                        </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -184,6 +206,24 @@ function VendorManager() {
           </table>
         </div>
       </div>
+
+      {/* --- DELETE CONFIRM MODAL --- */}
+      {deleteTarget && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{position:'fixed', top:0, left:0, width:'100%', height:'100%', backgroundColor:'rgba(0,0,0,0.5)', zIndex:1050, display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <div className="bg-white p-4 rounded shadow-lg" style={{backgroundColor:'white', padding:'20px', borderRadius:'8px', width:'400px', maxWidth:'90%'}}>
+                <h4 className="text-danger fw-bold mb-3">Confirm Deletion</h4>
+                <p className="mb-4 text-dark">
+                    Are you sure you want to delete <strong>{deleteTarget.business_name}</strong>?
+                    <br/>
+                    <span className="text-danger small fw-bold">This will remove their inventory availability.</span>
+                </p>
+                <div className="d-flex justify-content-end gap-2">
+                    <button onClick={() => setDeleteTarget(null)} className="btn btn-light">Cancel</button>
+                    <button onClick={handleDeleteConfirm} className="btn btn-danger">Delete</button>
+                </div>
+            </div>
+        </div>
+      )}
 
       {/* --- MODAL: ADD VENDOR --- */}
       {showAddVendor && (

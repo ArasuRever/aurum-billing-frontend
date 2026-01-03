@@ -36,6 +36,7 @@ export const api = {
   addVendor: (data) => axiosInstance.post(`/vendors/add`, data),
   searchVendor: (q) => axiosInstance.get(`/vendors/search?q=${q}`),
   updateVendor: (id, data) => axiosInstance.put(`/vendors/${id}`, data),
+  deleteVendor: (id) => axiosInstance.delete(`/vendors/${id}`), // <--- ADDED THIS LINE
   getVendors: () => axiosInstance.get(`/vendors/list`),
   addAgent: (formData) => axiosInstance.post(`/vendors/add-agent`, formData),
   getVendorAgents: (id) => axiosInstance.get(`/vendors/${id}/agents`),
