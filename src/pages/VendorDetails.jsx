@@ -401,16 +401,23 @@ function VendorDetails() {
                                             </div>
                                         </td>
                                         <td className="fw-bold text-center text-primary">{item.wastage_percent}%</td>
+                                        
+                                        {/* WEIGHT + VISIBLE EDIT BUTTON */}
                                         <td>
-                                            <div className="fw-bold">{item.gross_weight}g</div>
+                                            <div className="d-flex align-items-center mb-1">
+                                                <span className="fw-bold me-2">{item.gross_weight} g</span>
+                                                <button className="btn btn-sm btn-secondary ms-2" style={{padding: '0px 6px', fontSize: '10px'}} onClick={() => startEditItem(item)} title="Edit Weight">
+                                                    <FaEdit />
+                                                </button>
+                                            </div>
                                             <div className="small text-success fw-bold" style={{fontSize:'0.7rem'}}>
                                                 Pure: {calculatePureDisplay(item.gross_weight, item.wastage_percent)}g
                                             </div>
                                         </td>
+
                                         <td>
                                             <div className="btn-group btn-group-sm">
                                                 {item.stock_type === 'BULK' && (<button className="btn btn-outline-success" onClick={() => openRestockModal(item)}><FaPlus/></button>)}
-                                                <button className="btn btn-outline-primary" onClick={() => startEditItem(item)}><FaEdit/></button>
                                                 <button className="btn btn-outline-danger" onClick={() => handleDeleteItem(item.id)}><FaTrash /></button>
                                             </div>
                                         </td>
@@ -421,7 +428,7 @@ function VendorDetails() {
                     </div>
                 </div>
 
-                {/* SOLD HISTORY (CORRECTED) */}
+                {/* SOLD / LENT HISTORY (FIXED VISIBILITY) */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
@@ -433,7 +440,7 @@ function VendorDetails() {
                                 <tr>
                                     <th>Date</th>
                                     <th>Details</th>
-                                    <th>Weight Analysis</th> {/* CONSOLIDATED COLUMN */}
+                                    <th>Weight Analysis</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -453,12 +460,11 @@ function VendorDetails() {
                                             </div>
                                         </td>
                                         
-                                        {/* WEIGHT ANALYSIS & EDIT */}
+                                        {/* VISIBLE EDIT BUTTON HERE TOO */}
                                         <td>
                                             <div className="d-flex align-items-center mb-1">
                                                 <span className="fw-bold me-2" style={{minWidth: '60px'}}>{item.gross_weight} g</span>
-                                                {/* ICON-BASED EDIT BUTTON NEXT TO WEIGHT */}
-                                                <button className="btn btn-sm btn-link p-0 text-primary" onClick={() => startEditItem(item)} title="Edit Weight / Touch">
+                                                <button className="btn btn-sm btn-secondary ms-2" style={{padding: '0px 6px', fontSize: '10px'}} onClick={() => startEditItem(item)} title="Edit Weight / Touch">
                                                     <FaEdit />
                                                 </button>
                                             </div>
@@ -471,13 +477,12 @@ function VendorDetails() {
                                         <td>{item.status === 'LENT' ? <span className="badge bg-warning text-dark">LENT</span> : <span className="badge bg-secondary">SOLD</span>}</td>
                                         <td>
                                             <div className="d-flex gap-1">
-                                                {/* RESTORED MAIN EDIT BUTTON */}
-                                                <button className="btn btn-sm btn-outline-primary py-0" onClick={() => startEditItem(item)} title="Edit Details">
+                                                <button className="btn btn-sm btn-outline-primary py-1 px-2" onClick={() => startEditItem(item)} title="Edit Details">
                                                     <FaEdit />
                                                 </button>
-
-                                                {/* SETTLE BUTTON */}
-                                                <button className="btn btn-sm btn-success py-0" onClick={() => handleSettleItem(item)} title="Settle"><FaMoneyBillWave /></button>
+                                                <button className="btn btn-sm btn-success py-1 px-2" onClick={() => handleSettleItem(item)} title="Settle">
+                                                    <FaMoneyBillWave />
+                                                </button>
                                             </div>
                                         </td>
                                     </tr>
@@ -488,8 +493,8 @@ function VendorDetails() {
                 </div>
              </div>
              
+             {/* ... Right Sidebar ... */}
              <div className="col-md-3">
-                 {/* SETTLEMENT FORM */}
                  <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                     <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
                     <div className="display-6 fw-bold">{parseFloat(vendor.balance_pure_weight || 0).toFixed(3)} g</div>
@@ -540,19 +545,17 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* EDIT ITEM MODAL WITH LIVE CALCULATION */}
+      {/* EDIT ITEM MODAL */}
       {editingItem && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
            <div className="modal-dialog">
               <div className="modal-content">
                  <div className="modal-header"><h5 className="modal-title">Edit Item Details</h5><button className="btn-close" onClick={() => setEditingItem(null)}></button></div>
                  <div className="modal-body">
-                    {/* Item Name */}
                     <div className="mb-2">
                         <label className="form-label small fw-bold">Item Name</label>
                         <input className="form-control" value={editForm.item_name} onChange={e => setEditForm({...editForm, item_name: e.target.value})} />
                     </div>
-                    {/* Photo */}
                     <div className="mb-2">
                         <label className="form-label small fw-bold">Item Photo</label>
                         <div className="d-flex align-items-center gap-2">
@@ -563,7 +566,6 @@ function VendorDetails() {
                             </label>
                         </div>
                     </div>
-                    
                     <div className="row g-2 mb-2">
                         <div className="col-6">
                             <label className="form-label small">Gross Wt</label>
@@ -574,15 +576,12 @@ function VendorDetails() {
                             <input className="form-control" type="number" step="0.01" value={editForm.wastage_percent} onChange={e => setEditForm({...editForm, wastage_percent: e.target.value})} />
                         </div>
                     </div>
-
-                    {/* LIVE CALCULATION DISPLAY */}
                     <div className="alert alert-success py-2 mb-2 text-center">
                         <small className="d-block text-muted">Calculated Pure Weight</small>
                         <strong className="fs-5">
                             {calculatePureDisplay(editForm.gross_weight, editForm.wastage_percent)} g
                         </strong>
                     </div>
-
                     <div className="mb-2">
                         <label className="form-label small">Reason / Note</label>
                         <textarea className="form-control" placeholder="Why are you editing this?" value={editForm.update_comment} onChange={e => setEditForm({...editForm, update_comment: e.target.value})} />
