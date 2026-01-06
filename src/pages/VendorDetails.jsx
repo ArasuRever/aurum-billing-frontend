@@ -381,8 +381,8 @@ function VendorDetails() {
                                 <tr>
                                     <th style={{width:'30px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={availableItems.length > 0 && availableItems.every(i => selectedIds[i.id])} /></th>
                                     <th>Details</th>
-                                    <th>Touch %</th> {/* NEW COLUMN */}
-                                    <th>Wt / Pure</th> {/* UPDATED COLUMN */}
+                                    <th>Touch %</th> 
+                                    <th>Wt / Pure</th> 
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -421,7 +421,7 @@ function VendorDetails() {
                     </div>
                 </div>
 
-                {/* SOLD HISTORY (RE-DESIGNED FOR YOU) */}
+                {/* SOLD HISTORY (CORRECTED) */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
@@ -453,13 +453,13 @@ function VendorDetails() {
                                             </div>
                                         </td>
                                         
-                                        {/* NEW WEIGHT ANALYSIS COLUMN */}
+                                        {/* WEIGHT ANALYSIS & EDIT */}
                                         <td>
                                             <div className="d-flex align-items-center mb-1">
                                                 <span className="fw-bold me-2" style={{minWidth: '60px'}}>{item.gross_weight} g</span>
-                                                {/* EDIT BUTTON NEXT TO GROSS WEIGHT */}
+                                                {/* ICON-BASED EDIT BUTTON NEXT TO WEIGHT */}
                                                 <button className="btn btn-sm btn-link p-0 text-primary" onClick={() => startEditItem(item)} title="Edit Weight / Touch">
-                                                    <i className="bi bi-pencil-square"></i>
+                                                    <FaEdit />
                                                 </button>
                                             </div>
                                             <div className="small text-muted" style={{fontSize: '0.75rem'}}>Touch: {item.wastage_percent}%</div>
@@ -471,6 +471,12 @@ function VendorDetails() {
                                         <td>{item.status === 'LENT' ? <span className="badge bg-warning text-dark">LENT</span> : <span className="badge bg-secondary">SOLD</span>}</td>
                                         <td>
                                             <div className="d-flex gap-1">
+                                                {/* RESTORED MAIN EDIT BUTTON */}
+                                                <button className="btn btn-sm btn-outline-primary py-0" onClick={() => startEditItem(item)} title="Edit Details">
+                                                    <FaEdit />
+                                                </button>
+
+                                                {/* SETTLE BUTTON */}
                                                 <button className="btn btn-sm btn-success py-0" onClick={() => handleSettleItem(item)} title="Settle"><FaMoneyBillWave /></button>
                                             </div>
                                         </td>
