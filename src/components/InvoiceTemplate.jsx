@@ -55,17 +55,37 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
          {`
            @media print {
              @page { size: A4; margin: 0; }
-             body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
+             
+             html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                height: 100%;
+                overflow: hidden !important; /* Prevents scrollbars in print */
+             }
+
+             /* Hide everything else */
+             body * {
+               visibility: hidden;
+             }
+
+             /* Show only the invoice */
+             #printable-invoice, #printable-invoice * {
+               visibility: visible;
+             }
+
              #printable-invoice { 
+                position: fixed !important; /* Fixed breaks out of the 'transform' scale in preview */
+                left: 0 !important;
+                top: 0 !important;
                 width: 210mm !important; 
                 min-height: 297mm !important; 
                 margin: 0 !important;
                 padding: 10mm 15mm !important;
                 box-sizing: border-box !important;
                 background-color: white !important;
-                position: absolute;
-                top: 0;
-                left: 0;
+                z-index: 9999 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
              }
            }
          `}
@@ -150,6 +170,7 @@ const InvoiceTemplate = ({ data, businessProfile }) => {
                             <td className="py-2 pe-0 text-end fw-bold text-dark" style={transparentStyle}>₹{parseFloat(item.total).toLocaleString()}</td>
                          </tr>
                       ))}
+                      {/* Filler rows to maintain height if items are few */}
                       {items.length < 6 && (
                           <tr style={transparentStyle}><td colSpan="7" style={{height: `${(6 - items.length) * 35}px`, ...transparentStyle}}></td></tr>
                       )}

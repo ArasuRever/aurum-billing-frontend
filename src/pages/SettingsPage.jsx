@@ -76,12 +76,23 @@ function SettingsPage() {
     try {
         const [typesRes, itemsRes, ratesRes] = await Promise.all([api.getProductTypes(), api.getMasterItems(), api.getDailyRates()]);
         let types = typesRes.data || [];
-        setProductTypes(types); setItems(itemsRes.data || []); setRates(ratesRes.data || {});
+        setProductTypes(types); 
+        setItems(itemsRes.data || []); 
+        setRates(ratesRes.data || {});
+        
         if (types.length > 0) {
             const targetTab = types.find(t => t.name === activeProductTab) || types[0];
             if (targetTab) {
                 setActiveProductTab(targetTab.name);
-                setActiveTabSettings({ id: targetTab.id, formula: targetTab.formula || '', display_color: targetTab.display_color || '', hsn_code: targetTab.hsn_code || '' });
+                // FIX APPLIED HERE: Added name and metal_type to state
+                setActiveTabSettings({ 
+                    id: targetTab.id, 
+                    name: targetTab.name, 
+                    metal_type: targetTab.metal_type,
+                    formula: targetTab.formula || '', 
+                    display_color: targetTab.display_color || '', 
+                    hsn_code: targetTab.hsn_code || '' 
+                });
             }
         }
     } catch (err) { console.error(err); }
@@ -154,7 +165,22 @@ function SettingsPage() {
   const handleChangePassword = async () => { if(!passModal.newPassword) return; try { await api.updateUser(passModal.userId, { password: passModal.newPassword }); alert("Updated"); setPassModal({ show: false, userId: null, newPassword: '' }); } catch(e){ alert(e.message); } };
 
   // --- OTHER HANDLERS ---
-  const handleTabSwitch = (typeName) => { setActiveProductTab(typeName); const type = productTypes.find(t => t.name === typeName); if(type) setActiveTabSettings({ id: type.id, formula: type.formula || '', display_color: type.display_color || '', hsn_code: type.hsn_code || '' }); };
+  const handleTabSwitch = (typeName) => { 
+      setActiveProductTab(typeName); 
+      const type = productTypes.find(t => t.name === typeName); 
+      if(type) {
+          // FIX APPLIED HERE: Added name and metal_type to state
+          setActiveTabSettings({ 
+              id: type.id, 
+              name: type.name,
+              metal_type: type.metal_type,
+              formula: type.formula || '', 
+              display_color: type.display_color || '', 
+              hsn_code: type.hsn_code || '' 
+          }); 
+      }
+  };
+  
   const handleSaveTabSettings = async () => { if(!activeTabSettings.id) return; try { await api.updateProductType(activeTabSettings.id, activeTabSettings); alert("Saved"); loadData(); } catch(e) { alert("Error"); } };
   const handleBulkAdd = async () => { if (!entryNames.trim()) return alert("Enter names"); try { await api.addMasterItemsBulk({ item_names: entryNames.split(','), metal_type: activeProductTab, ...newRule, hsn_code: newRule.hsn_code || activeTabSettings.hsn_code }); setEntryNames(''); loadData(); alert(`Added!`); } catch (err) { alert("Error"); } };
   const handleRateUpdate = async (metal) => { const val = rates[metal]; if(!val) return; setLoadingRates(true); try { await api.updateDailyRate({ metal_type: metal, rate: val }); alert("Updated"); } catch(err) { alert("Failed"); } finally { setLoadingRates(false); } };
