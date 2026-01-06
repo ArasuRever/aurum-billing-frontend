@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useReactToPrint } from 'react-to-print'; 
 import BarcodePrintComponent from '../components/BarcodePrintComponent'; 
-import { FaTrash, FaPlus, FaClock, FaUndo, FaCamera } from 'react-icons/fa'; // Added FaUndo, FaCamera
+import { FaTrash, FaPlus, FaClock, FaUndo, FaCamera, FaMoneyBillWave, FaEdit } from 'react-icons/fa'; 
 
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -31,11 +31,11 @@ function VendorDetails() {
   
   // Modals & Forms
   const [editingItem, setEditingItem] = useState(null);
-  const [editForm, setEditForm] = useState({ item_name: '', gross_weight: '', wastage_percent: '', update_comment: '', item_image: null }); // Added Name/Image
-  const [previewImage, setPreviewImage] = useState(null); // Live preview for edit
+  const [editForm, setEditForm] = useState({ item_name: '', gross_weight: '', wastage_percent: '', update_comment: '', item_image: null });
+  const [previewImage, setPreviewImage] = useState(null); 
   const [purityMode, setPurityMode] = useState('TOUCH'); 
 
-  // --- NEW: RESTOCK & HISTORY STATE ---
+  // Restock & History State
   const [restockItem, setRestockItem] = useState(null);
   const [restockForm, setRestockForm] = useState({ gross_weight: '', quantity: '', invoice_no: '', wastage_percent: '' });
   const [historyItem, setHistoryItem] = useState(null);
@@ -43,7 +43,7 @@ function VendorDetails() {
 
   // Delete Vendor Modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [stockAction, setStockAction] = useState('DELETE'); // 'DELETE' or 'MOVE'
+  const [stockAction, setStockAction] = useState('DELETE'); 
 
   const [selectedIds, setSelectedIds] = useState({});
   const printRef = useRef();
@@ -110,10 +110,9 @@ function VendorDetails() {
   const availableWeight = availableItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
   const soldWeight = soldItems.reduce((acc, i) => acc + (parseFloat(i.gross_weight)||0), 0).toFixed(3);
 
-  // --- DELETE VENDOR LOGIC ---
   const handleDelete = async () => {
     try {
-        await api.deleteVendor(id, stockAction); // Pass stock action
+        await api.deleteVendor(id, stockAction);
         setShowDeleteModal(false);
         navigate('/vendors');
     } catch (err) {
@@ -121,7 +120,6 @@ function VendorDetails() {
     }
   };
 
-  // --- DELETE ITEM LOGIC ---
   const handleDeleteItem = async (itemId) => { 
       if(window.confirm("Are you sure you want to delete this item?")) { 
           await api.deleteInventory(itemId); 
@@ -129,11 +127,9 @@ function VendorDetails() {
       }
   };
 
-  // --- RESTORE ITEM LOGIC ---
   const handleRestoreItem = async (itemId) => {
-      console.log("Attempting to restore Item ID:", itemId); 
       if(!itemId) {
-          alert("Unable to restore: This transaction record is missing the Item ID.\n\nThis likely happened because the item was deleted before the 'Restore' feature was updated in the system.");
+          alert("Unable to restore: Missing Item ID.");
           return;
       }
       if(window.confirm("Restore this deleted item? This will add stock back to the inventory.")) {
@@ -142,13 +138,18 @@ function VendorDetails() {
               alert("Item Restored Successfully!");
               loadAllData();
           } catch(err) {
-              console.error("Restore Error:", err);
               alert("Failed to restore: " + (err.response?.data?.error || err.message));
           }
       }
   };
 
   // --- HELPER FUNCTIONS ---
+  const calculatePureDisplay = (gross, purity) => {
+      const g = parseFloat(gross) || 0;
+      const p = parseFloat(purity) || 0;
+      return (g * (p / 100)).toFixed(3);
+  };
+
   const handleSelectAll = (e) => {
       if (e.target.checked) {
           const allIds = {};
@@ -215,7 +216,7 @@ function VendorDetails() {
   const autoCreateMasterItems = async (itemsToSave) => { const newItems = itemsToSave.filter(stockItem => { if (!stockItem.item_name) return false; const exists = masterItems.some(master => master.item_name.toLowerCase() === stockItem.item_name.trim().toLowerCase() && master.metal_type === stockItem.metal_type ); return !exists; }); if (newItems.length === 0) return; const grouped = {}; newItems.forEach(item => { if (!grouped[item.metal_type]) grouped[item.metal_type] = []; if (!grouped[item.metal_type].some(i => i.item_name.toLowerCase() === item.item_name.trim().toLowerCase())) { grouped[item.metal_type].push(item); } }); for (const metal of Object.keys(grouped)) { const groupItems = grouped[metal]; const names = groupItems.map(i => i.item_name.trim()); const referenceItem = groupItems[0]; try { await api.addMasterItemsBulk({ item_names: names, metal_type: metal, calc_method: 'STANDARD', default_wastage: referenceItem.wastage_percent || 0, mc_type: 'FIXED', mc_value: 0, hsn_code: '' }); } catch (err) { console.warn("Failed to auto-create master items", err); } } fetchMasterItems(); };
   const handleSubmitStock = async () => { const validRows = stockRows.filter(r => r.item_name && r.gross_weight); if (validRows.length === 0) return alert("Fill at least one row"); try { await autoCreateMasterItems(validRows); const grouped = {}; validRows.forEach(row => { if(!grouped[row.metal_type]) grouped[row.metal_type] = []; grouped[row.metal_type].push(row); }); for (const metal of Object.keys(grouped)) { const itemsToProcess = grouped[metal]; const processedItems = await Promise.all(itemsToProcess.map(async (item) => { let b64 = null; if (item.item_image && item.item_image instanceof File) { b64 = await toBase64(item.item_image); } return { ...item, pure_weight: item.calc_total_pure, item_image_base64: b64, quantity: item.stock_type === 'BULK' ? (item.quantity || 1) : 1 }; })); await api.addBatchInventory({ vendor_id: id, metal_type: metal, invoice_no: batchInvoice, items: processedItems }); } alert('Stock Added Successfully!'); setViewMode('overview'); loadAllData(); } catch(err) { console.error(err); alert('Error adding stock: ' + err.message); } };
 
-  // --- EDIT ITEM HANDLER (Updated for Name/Image) ---
+  // --- EDIT ITEM HANDLER ---
   const startEditItem = (item) => { 
       setEditingItem(item); 
       setEditForm({ 
@@ -225,7 +226,7 @@ function VendorDetails() {
           update_comment: '',
           item_image: null
       }); 
-      setPreviewImage(item.item_image); // Show current image
+      setPreviewImage(item.item_image); 
   };
 
   const handleEditFileChange = (file) => {
@@ -252,14 +253,26 @@ function VendorDetails() {
       loadAllData(); 
   };
   
+  // --- SETTLEMENT / REPAYMENT HANDLERS ---
   const handleRepayment = async () => {
     const total = (repayForm.type === 'METAL') ? repayForm.metal_weight : (parseFloat(repayForm.amount) / parseFloat(repayForm.rate)).toFixed(3);
     if (parseFloat(total) <= 0) return alert("Invalid Amount");
     const payload = { vendor_id: id, type: 'REPAYMENT', description: repayForm.description || 'Settlement', metal_weight: (repayForm.type !== 'CASH') ? repayForm.metal_weight : 0, cash_amount: (repayForm.type !== 'METAL') ? repayForm.amount : 0, conversion_rate: (repayForm.type !== 'METAL') ? repayForm.rate : 0 };
     try { await api.vendorTransaction(payload); alert('Saved'); setShowRepayment(false); setRepayForm({ type: 'CASH', amount: '', rate: '', metal_weight: '', description: '' }); loadAllData(); } catch (err) { alert(err.message); }
   };
+
+  const handleSettleItem = (item) => {
+      setShowRepayment(true);
+      setRepayForm({
+          type: 'METAL',
+          amount: '',
+          rate: '',
+          metal_weight: item.gross_weight,
+          description: `Settlement for: ${item.item_name}`
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   
-  // --- UPDATED BADGE LOGIC ---
   const getTxnBadge = (txn) => {
       if (txn.reference_type === 'ITEM_DELETE' || (txn.description && txn.description.includes('Deleted:'))) {
           return <span className="fw-bold text-danger">DELETED</span>;
@@ -290,7 +303,6 @@ function VendorDetails() {
                 <button className={`btn ${viewMode === 'overview' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setViewMode('overview')}>Dashboard</button>
                 <button className={`btn ${viewMode === 'add_stock' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={initStockForm}>Add Stock</button>
             </div>
-            {/* DELETE BUTTON */}
             <button onClick={() => setShowDeleteModal(true)} className="btn btn-outline-danger d-flex align-items-center gap-1">
                 <FaTrash /> <span className="d-none d-md-inline">Delete</span>
             </button>
@@ -313,26 +325,10 @@ function VendorDetails() {
               <tbody>
                 {stockRows.map((row, i) => (
                   <tr key={i}>
-                    <td>
-                        <select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>
-                            {getAllowedMetals().map(type => (
-                                <option key={type.id} value={type.name}>{type.name}</option>
-                            ))}
-                        </select>
-                    </td>
+                    <td><select className="form-select form-select-sm" value={row.metal_type} onChange={e => handleRowChange(i, 'metal_type', e.target.value)}>{getAllowedMetals().map(type => (<option key={type.id} value={type.name}>{type.name}</option>))}</select></td>
                     <td><input className="form-control form-control-sm" list={`suggestions-${i}`} placeholder="Name" value={row.item_name} onChange={e => handleRowChange(i, 'item_name', e.target.value)} /><datalist id={`suggestions-${i}`}>{masterItems.filter(m => m.metal_type === row.metal_type).map((m, idx) => <option key={idx} value={m.item_name} />)}</datalist></td>
                     <td><input type="file" className="form-control form-control-sm" style={{width:'80px'}} accept="image/*" onChange={e => handleFileChange(i, e.target.files[0])} /></td>
-                    <td>
-                        <div className="d-flex gap-1">
-                            <select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)} style={{width: row.stock_type === 'BULK' ? '70px' : '100%'}}>
-                                <option value="SINGLE">Single</option>
-                                <option value="BULK">Bulk</option>
-                            </select>
-                            {row.stock_type === 'BULK' && (
-                                <input type="number" className="form-control form-control-sm" placeholder="Qty" value={row.quantity} onChange={e => handleRowChange(i, 'quantity', e.target.value)} style={{width: '60px'}} />
-                            )}
-                        </div>
-                    </td>
+                    <td><div className="d-flex gap-1"><select className="form-select form-select-sm" value={row.stock_type} onChange={e => handleRowChange(i, 'stock_type', e.target.value)} style={{width: row.stock_type === 'BULK' ? '70px' : '100%'}}><option value="SINGLE">Single</option><option value="BULK">Bulk</option></select>{row.stock_type === 'BULK' && (<input type="number" className="form-control form-control-sm" placeholder="Qty" value={row.quantity} onChange={e => handleRowChange(i, 'quantity', e.target.value)} style={{width: '60px'}} />)}</div></td>
                     <td><input type="number" step="0.001" className="form-control form-control-sm" value={row.gross_weight} onChange={e => handleRowChange(i, 'gross_weight', e.target.value)} /></td>
                     <td><input type="text" className="form-control form-control-sm" placeholder="XXXX" value={row.huid} onChange={e => handleRowChange(i, 'huid', e.target.value)} /></td>
                     <td className="bg-warning bg-opacity-10"><input type="number" step="0.01" className="form-control form-control-sm fw-bold" placeholder={purityMode==='TOUCH'?'92':'10'} value={row.wastage_percent} onChange={e => handleRowChange(i, 'wastage_percent', e.target.value)} /></td>
@@ -384,24 +380,38 @@ function VendorDetails() {
                             <thead className="table-light small sticky-top">
                                 <tr>
                                     <th style={{width:'30px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={availableItems.length > 0 && availableItems.every(i => selectedIds[i.id])} /></th>
-                                    <th>Image</th><th>Details</th><th>Count</th><th>Wt</th><th>Actions</th>
+                                    <th>Details</th>
+                                    <th>Touch %</th> {/* NEW COLUMN */}
+                                    <th>Wt / Pure</th> {/* UPDATED COLUMN */}
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {availableItems.length === 0 && <tr><td colSpan="6" className="text-center py-3 text-muted">No items found</td></tr>}
+                                {availableItems.length === 0 && <tr><td colSpan="5" className="text-center py-3 text-muted">No items found</td></tr>}
                                 {availableItems.map(item => (
                                     <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
                                         <td className="text-center"><input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} /></td>
-                                        <td>{item.item_image && <img src={item.item_image} style={{width:'40px',height:'40px'}} />}</td>
-                                        <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div>{item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK</span>}</td>
-                                        <td>{item.stock_type === 'BULK' ? (<div className="small"><strong>{item.quantity}</strong> <span className="text-muted">/ {item.total_quantity_added || '-'}</span></div>) : '-'}</td>
-                                        <td><div className="fw-bold">{item.gross_weight}g</div>{item.stock_type === 'BULK' && <div className="small text-muted" style={{fontSize:'0.65rem'}}>Total: {item.total_weight_added || '-'}g</div>}</td>
+                                        <td>
+                                            <div className="d-flex align-items-center gap-2">
+                                                {item.item_image && <img src={item.item_image} style={{width:'35px',height:'35px'}} className="border rounded" />}
+                                                <div>
+                                                    <div className="fw-bold small">{item.item_name}</div>
+                                                    <div className="small font-monospace text-muted">{item.barcode}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="fw-bold text-center text-primary">{item.wastage_percent}%</td>
+                                        <td>
+                                            <div className="fw-bold">{item.gross_weight}g</div>
+                                            <div className="small text-success fw-bold" style={{fontSize:'0.7rem'}}>
+                                                Pure: {calculatePureDisplay(item.gross_weight, item.wastage_percent)}g
+                                            </div>
+                                        </td>
                                         <td>
                                             <div className="btn-group btn-group-sm">
-                                                {item.stock_type === 'BULK' && (<><button className="btn btn-outline-success" onClick={() => openRestockModal(item)} title="Restock"><FaPlus/></button><button className="btn btn-outline-secondary" onClick={() => openHistoryModal(item)} title="History"><FaClock/></button></>)}
-                                                <button className="btn btn-outline-primary" onClick={() => startEditItem(item)}><i className="bi bi-pencil"></i></button>
-                                                {/* ITEM DELETE BUTTON */}
-                                                <button className="btn btn-outline-danger" onClick={() => handleDeleteItem(item.id)} title="Delete Item"><FaTrash /></button>
+                                                {item.stock_type === 'BULK' && (<button className="btn btn-outline-success" onClick={() => openRestockModal(item)}><FaPlus/></button>)}
+                                                <button className="btn btn-outline-primary" onClick={() => startEditItem(item)}><FaEdit/></button>
+                                                <button className="btn btn-outline-danger" onClick={() => handleDeleteItem(item.id)}><FaTrash /></button>
                                             </div>
                                         </td>
                                     </tr>
@@ -410,7 +420,8 @@ function VendorDetails() {
                         </table>
                     </div>
                 </div>
-                {/* SOLD HISTORY */}
+
+                {/* SOLD HISTORY (RE-DESIGNED FOR YOU) */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
@@ -419,18 +430,50 @@ function VendorDetails() {
                     <div className="table-responsive" style={{maxHeight:'40vh'}}>
                         <table className="table table-hover align-middle mb-0">
                             <thead className="table-light sticky-top small">
-                                <tr><th>Date</th><th>Image</th><th>Details</th><th>Qty</th><th>Wt</th><th>Status</th></tr>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Details</th>
+                                    <th>Weight Analysis</th> {/* CONSOLIDATED COLUMN */}
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
                             </thead>
                             <tbody>
-                                {soldItems.length === 0 && <tr><td colSpan="6" className="text-center py-3 text-muted">No sold items</td></tr>}
+                                {soldItems.length === 0 && <tr><td colSpan="5" className="text-center py-3 text-muted">No sold items</td></tr>}
                                 {soldItems.map((item, idx) => (
                                     <tr key={idx} className="bg-light opacity-75">
                                         <td className="small text-muted">{new Date(item.created_at).toLocaleDateString()}</td>
-                                        <td>{item.item_image && <img src={item.item_image} className="rounded border" style={{width:'35px',height:'35px',objectFit:'cover',filter:'grayscale(100%)'}} />}</td>
-                                        <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div></td>
-                                        <td className="fw-bold text-center">{item.quantity || 1}</td>
-                                        <td className="fw-bold">{item.gross_weight}g</td>
+                                        <td>
+                                            <div className="d-flex align-items-center gap-2">
+                                                {item.item_image && <img src={item.item_image} className="rounded border" style={{width:'30px',height:'30px',objectFit:'cover',filter:'grayscale(100%)'}} />}
+                                                <div>
+                                                    <div className="fw-bold small">{item.item_name}</div>
+                                                    <div className="small font-monospace text-muted">{item.barcode}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        
+                                        {/* NEW WEIGHT ANALYSIS COLUMN */}
+                                        <td>
+                                            <div className="d-flex align-items-center mb-1">
+                                                <span className="fw-bold me-2" style={{minWidth: '60px'}}>{item.gross_weight} g</span>
+                                                {/* EDIT BUTTON NEXT TO GROSS WEIGHT */}
+                                                <button className="btn btn-sm btn-link p-0 text-primary" onClick={() => startEditItem(item)} title="Edit Weight / Touch">
+                                                    <i className="bi bi-pencil-square"></i>
+                                                </button>
+                                            </div>
+                                            <div className="small text-muted" style={{fontSize: '0.75rem'}}>Touch: {item.wastage_percent}%</div>
+                                            <div className="small text-success fw-bold" style={{fontSize:'0.75rem'}}>
+                                                Pure: {calculatePureDisplay(item.gross_weight, item.wastage_percent)} g
+                                            </div>
+                                        </td>
+
                                         <td>{item.status === 'LENT' ? <span className="badge bg-warning text-dark">LENT</span> : <span className="badge bg-secondary">SOLD</span>}</td>
+                                        <td>
+                                            <div className="d-flex gap-1">
+                                                <button className="btn btn-sm btn-success py-0" onClick={() => handleSettleItem(item)} title="Settle"><FaMoneyBillWave /></button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -440,7 +483,7 @@ function VendorDetails() {
              </div>
              
              <div className="col-md-3">
-                 {/* Right Column: Ledger (Keep existing) */}
+                 {/* SETTLEMENT FORM */}
                  <div className="card bg-danger text-white mb-3 text-center p-3 shadow-sm">
                     <small className="fw-bold opacity-75">PURE BALANCE OWED</small>
                     <div className="display-6 fw-bold">{parseFloat(vendor.balance_pure_weight || 0).toFixed(3)} g</div>
@@ -449,13 +492,16 @@ function VendorDetails() {
                  {showRepayment && (
                    <div className="card shadow-sm mb-3 border-danger">
                      <div className="card-body">
+                        <h6 className="small fw-bold text-danger mb-2">Record Payment / Return</h6>
                         <select className="form-select form-select-sm mb-2" value={repayForm.type} onChange={e => setRepayForm({...repayForm, type: e.target.value})}><option value="CASH">Cash</option><option value="METAL">Metal</option><option value="MIXED">Mixed</option></select>
                         {(repayForm.type!=='METAL') && <div className="row g-1 mb-2"><div className="col-6"><input type="number" className="form-control form-control-sm" placeholder="₹ Amount" value={repayForm.amount} onChange={e => setRepayForm({...repayForm, amount: e.target.value})} /></div><div className="col-6"><input type="number" className="form-control form-control-sm" placeholder="Rate" value={repayForm.rate} onChange={e => setRepayForm({...repayForm, rate: e.target.value})} /></div></div>}
                         {(repayForm.type!=='CASH') && <input type="number" className="form-control form-control-sm mb-2" placeholder="Metal Wt (g)" value={repayForm.metal_weight} onChange={e => setRepayForm({...repayForm, metal_weight: e.target.value})} />}
-                        <button className="btn btn-danger btn-sm w-100" onClick={handleRepayment}>Save</button>
+                        <div className="mb-2"><input className="form-control form-control-sm" placeholder="Description" value={repayForm.description} onChange={e => setRepayForm({...repayForm, description: e.target.value})} /></div>
+                        <button className="btn btn-danger btn-sm w-100" onClick={handleRepayment}>Save Transaction</button>
                      </div>
                    </div>
                  )}
+
                  <div className="card shadow-sm">
                    <div className="card-header bg-white py-2 small fw-bold text-muted">Ledger</div>
                    <div className="card-body p-0 overflow-auto" style={{maxHeight:'40vh'}}>
@@ -472,7 +518,6 @@ function VendorDetails() {
                                
                                <div className="d-flex align-items-center gap-2">
                                    <div className="fw-bold">{txn.type==='STOCK_ADDED'?'+':'-'} {parseFloat(txn.total_repaid_pure||txn.stock_pure_weight).toFixed(3)} g</div>
-                                   {/* RESTORE BUTTON FOR DELETED ITEMS */}
                                    {(txn.reference_type === 'ITEM_DELETE' || (txn.description && txn.description.includes('Deleted:'))) && (
                                        <button className="btn btn-sm btn-outline-primary py-0 px-1" title="Restore Item" onClick={() => handleRestoreItem(txn.reference_id)}>
                                            <FaUndo size={10} />
@@ -489,7 +534,61 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* --- CONFIRM DELETE MODAL WITH OPTIONS --- */}
+      {/* EDIT ITEM MODAL WITH LIVE CALCULATION */}
+      {editingItem && (
+        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+           <div className="modal-dialog">
+              <div className="modal-content">
+                 <div className="modal-header"><h5 className="modal-title">Edit Item Details</h5><button className="btn-close" onClick={() => setEditingItem(null)}></button></div>
+                 <div className="modal-body">
+                    {/* Item Name */}
+                    <div className="mb-2">
+                        <label className="form-label small fw-bold">Item Name</label>
+                        <input className="form-control" value={editForm.item_name} onChange={e => setEditForm({...editForm, item_name: e.target.value})} />
+                    </div>
+                    {/* Photo */}
+                    <div className="mb-2">
+                        <label className="form-label small fw-bold">Item Photo</label>
+                        <div className="d-flex align-items-center gap-2">
+                            {previewImage && <img src={previewImage} alt="Preview" className="border rounded" style={{width:'50px', height:'50px', objectFit:'cover'}} />}
+                            <label className="btn btn-outline-secondary btn-sm">
+                                <FaCamera className="me-1"/> Change Photo
+                                <input type="file" hidden accept="image/*" onChange={e => handleEditFileChange(e.target.files[0])} />
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div className="row g-2 mb-2">
+                        <div className="col-6">
+                            <label className="form-label small">Gross Wt</label>
+                            <input className="form-control" type="number" step="0.001" value={editForm.gross_weight} onChange={e => setEditForm({...editForm, gross_weight: e.target.value})} />
+                        </div>
+                        <div className="col-6">
+                            <label className="form-label small">Touch %</label>
+                            <input className="form-control" type="number" step="0.01" value={editForm.wastage_percent} onChange={e => setEditForm({...editForm, wastage_percent: e.target.value})} />
+                        </div>
+                    </div>
+
+                    {/* LIVE CALCULATION DISPLAY */}
+                    <div className="alert alert-success py-2 mb-2 text-center">
+                        <small className="d-block text-muted">Calculated Pure Weight</small>
+                        <strong className="fs-5">
+                            {calculatePureDisplay(editForm.gross_weight, editForm.wastage_percent)} g
+                        </strong>
+                    </div>
+
+                    <div className="mb-2">
+                        <label className="form-label small">Reason / Note</label>
+                        <textarea className="form-control" placeholder="Why are you editing this?" value={editForm.update_comment} onChange={e => setEditForm({...editForm, update_comment: e.target.value})} />
+                    </div>
+                 </div>
+                 <div className="modal-footer"><button className="btn btn-primary" onClick={handleSaveEditItem}>Update Details</button></div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* ... Other modals (Delete, Restock, etc) kept same ... */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{position:'fixed', top:0, left:0, width:'100%', height:'100%', backgroundColor:'rgba(0,0,0,0.5)', zIndex:1050, display:'flex', alignItems:'center', justifyContent:'center'}}>
             <div className="bg-white p-4 rounded shadow-lg" style={{backgroundColor:'white', padding:'20px', borderRadius:'8px', width:'450px', maxWidth:'90%'}}>
@@ -522,7 +621,6 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* ... (Other Modals: restock, history, agents, etc. kept same) ... */}
       {restockItem && (
           <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
               <div className="modal-dialog">
@@ -544,7 +642,6 @@ function VendorDetails() {
               </div>
           </div>
       )}
-      {/* ... (Agent and Edit Vendor Modals kept) ... */}
       {showManageAgents && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-lg">
@@ -568,51 +665,6 @@ function VendorDetails() {
                </div>
             </div>
          </div>
-      )}
-      
-      {/* UPDATED EDIT ITEM MODAL */}
-      {editingItem && (
-        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
-           <div className="modal-dialog">
-              <div className="modal-content">
-                 <div className="modal-header"><h5 className="modal-title">Edit Item</h5><button className="btn-close" onClick={() => setEditingItem(null)}></button></div>
-                 <div className="modal-body">
-                    {/* Item Name */}
-                    <div className="mb-2">
-                        <label className="form-label small fw-bold">Item Name</label>
-                        <input className="form-control" value={editForm.item_name} onChange={e => setEditForm({...editForm, item_name: e.target.value})} />
-                    </div>
-                    {/* Photo Upload with Preview */}
-                    <div className="mb-2">
-                        <label className="form-label small fw-bold">Item Photo</label>
-                        <div className="d-flex align-items-center gap-2">
-                            {previewImage && <img src={previewImage} alt="Preview" className="border rounded" style={{width:'50px', height:'50px', objectFit:'cover'}} />}
-                            <label className="btn btn-outline-secondary btn-sm">
-                                <FaCamera className="me-1"/> Change Photo
-                                <input type="file" hidden accept="image/*" onChange={e => handleEditFileChange(e.target.files[0])} />
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div className="row g-2 mb-2">
-                        <div className="col-6">
-                            <label className="form-label small">Gross Wt</label>
-                            <input className="form-control" type="number" value={editForm.gross_weight} onChange={e => setEditForm({...editForm, gross_weight: e.target.value})} />
-                        </div>
-                        <div className="col-6">
-                            <label className="form-label small">Wastage %</label>
-                            <input className="form-control" type="number" value={editForm.wastage_percent} onChange={e => setEditForm({...editForm, wastage_percent: e.target.value})} />
-                        </div>
-                    </div>
-                    <div className="mb-2">
-                        <label className="form-label small">Note</label>
-                        <textarea className="form-control" value={editForm.update_comment} onChange={e => setEditForm({...editForm, update_comment: e.target.value})} />
-                    </div>
-                 </div>
-                 <div className="modal-footer"><button className="btn btn-primary" onClick={handleSaveEditItem}>Update</button></div>
-              </div>
-           </div>
-        </div>
       )}
 
       <div style={{ display: 'none' }}>
