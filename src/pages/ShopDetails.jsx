@@ -7,12 +7,11 @@ function ShopDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [shop, setShop] = useState(null);
-  const [transactions, setTransactions] = useState([]); // Borrow/Lend Items (Top tables)
-  const [fullHistory, setFullHistory] = useState([]);   // Combined History (Bottom table)
+  const [transactions, setTransactions] = useState([]); 
+  const [fullHistory, setFullHistory] = useState([]);   
   const [loading, setLoading] = useState(false);
   const [productTypes, setProductTypes] = useState([]); 
 
-  // States
   const [activeModal, setActiveModal] = useState(null); 
   const [formMode, setFormMode] = useState('ITEM'); 
   const [itemRows, setItemRows] = useState([]);
@@ -22,7 +21,6 @@ function ShopDetails() {
   const [selectedTxn, setSelectedTxn] = useState(null);
   const [settleForm, setSettleForm] = useState({ mode: 'METAL', gold_val: '', silver_val: '', cash_val: '', metal_rate: '' });
 
-  // --- EDIT MODAL STATE ---
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState({ id: null, description: '', gross: '', wastage: '', mc_rate: '', manual_cash: '', type: 'GOLD', pure: 0, mc_total: 0, total_cash: 0 });
   const [expandedItems, setExpandedItems] = useState({});
@@ -44,7 +42,6 @@ function ShopDetails() {
 
   const toggleItemView = (id) => setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
 
-  // --- INITIALIZE ADD MODAL ---
   const initModal = (type) => {
     setActiveModal(type);
     setFormMode('ITEM');
@@ -58,7 +55,6 @@ function ShopDetails() {
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
-  // --- ROW HANDLERS ---
   const handleRowChange = (index, field, value) => {
     const newRows = [...itemRows];
     newRows[index][field] = value;
@@ -123,7 +119,6 @@ function ShopDetails() {
   };
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
 
-  // --- SUBMIT NEW TRANSACTION ---
   const handleMainSubmit = async () => {
     if (loading) return;
     setLoading(true);
@@ -182,6 +177,7 @@ function ShopDetails() {
     try { await api.deleteShopTransaction(txnId); loadData(); } catch(err) { alert('Delete Failed'); }
   };
 
+  // --- UPDATED: Intelligent Display Logic ---
   const getOutstanding = (t) => {
     const origGold = parseFloat(t.pure_weight) || 0; 
     const origSilver = parseFloat(t.silver_weight) || 0;
@@ -190,16 +186,26 @@ function ShopDetails() {
     const paidGold = parseFloat(t.total_gold_paid) || 0; 
     const paidSilver = parseFloat(t.total_silver_paid) || 0;
     const paidCash = parseFloat(t.total_cash_paid) || 0;
+    
+    // Determine the dominant metal type of this transaction
+    const isSilverItem = origSilver > 0.01 && origGold < 0.01;
+    const isGoldItem = origGold > 0.01 && origSilver < 0.01;
+
+    // Filter out floating point noise based on metal type
+    let pendingG = Math.max(0, origGold - paidGold);
+    let pendingS = Math.max(0, origSilver - paidSilver);
+    
+    if (isSilverItem) pendingG = 0; // Don't show noise gold pending on silver item
+    if (isGoldItem) pendingS = 0;   // Don't show noise silver pending on gold item
 
     return { 
-        remGold: Math.max(0, origGold - paidGold).toFixed(3), 
-        remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), 
+        remGold: pendingG.toFixed(3), 
+        remSilver: pendingS.toFixed(3), 
         remCash: Math.max(0, origCash - paidCash).toFixed(2),
         isSettled: t.is_settled 
     };
   };
   
-  // --- EDIT HANDLERS (UPDATED) ---
   const handleEditChange = (field, value) => {
     const newState = { ...editForm, [field]: value };
     const g = parseFloat(field==='gross'?value:newState.gross)||0;
@@ -207,7 +213,6 @@ function ShopDetails() {
     const rate = parseFloat(field==='mc_rate'?value:newState.mc_rate)||0;
     const manCash = parseFloat(field==='manual_cash'?value:newState.manual_cash)||0;
     
-    // Auto Calculate Pure
     newState.pure = (g * (w / 100)).toFixed(3); 
     newState.mc_total = (g * rate).toFixed(2);
     newState.total_cash = (parseFloat(newState.mc_total) + manCash).toFixed(2);
@@ -240,7 +245,6 @@ function ShopDetails() {
       const gross = parseFloat(t.gross_weight) || 0;
       const rate = gross > 0 ? (mc / gross).toFixed(2) : 0;
 
-      // DETECT EXISTING TYPE
       let currentType = 'GOLD';
       if (parseFloat(t.silver_weight) > 0.001) {
           currentType = 'SILVER';
@@ -261,7 +265,6 @@ function ShopDetails() {
       setEditModalOpen(true); 
   };
   
-  // --- SETTLE HANDLERS ---
   const openSettleModal = async (t) => { setSelectedTxn(t); setSettleModalOpen(true); };
   const handleSettleSubmit = async () => {
     let converted = 0; if (['CASH','BOTH'].includes(settleForm.mode) && settleForm.cash_val && settleForm.metal_rate) converted = (parseFloat(settleForm.cash_val) / parseFloat(settleForm.metal_rate)).toFixed(3);
@@ -317,7 +320,6 @@ function ShopDetails() {
          {renderTallyCard('Net Cash', shop.balance_cash, '₹')}
       </div>
 
-      {/* Transaction Lists (Top) */}
       <div className="row g-4 mb-4">
         <div className="col-md-6 border-end">
           <div className="d-flex justify-content-between mb-2"><h5 className="text-danger fw-bold">Borrowed (We Owe)</h5><button className="btn btn-danger btn-sm" onClick={() => initModal('BORROW')}>+ New Borrow</button></div>
@@ -398,7 +400,6 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* Audit Log Table (Bottom) */}
       <div className="card shadow-sm">
         <div className="card-header bg-dark text-white fw-bold">Detailed Audit Log (Transactions & Payments)</div>
         <div className="table-responsive" style={{maxHeight:'400px'}}>
@@ -440,7 +441,6 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* ADD MODAL (Items/Cash) - Unchanged */}
       {activeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-xl">
@@ -569,7 +569,6 @@ function ShopDetails() {
         </div>
       )}
 
-      {/* EDIT MODAL (NOW INCLUDES METAL TYPE SWITCH) */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">
@@ -584,7 +583,6 @@ function ShopDetails() {
                     <input className="form-control" value={editForm.description} onChange={e => handleEditChange('description', e.target.value)} />
                 </div>
                 
-                {/* NEW: Metal Type Selector */}
                 <div className="mb-3">
                     <label className="form-label small">Metal Type (Balance Bucket)</label>
                     <select className="form-select form-select-sm bg-light" value={editForm.type} onChange={e => handleEditChange('type', e.target.value)}>
@@ -635,7 +633,6 @@ function ShopDetails() {
         </div>
       )}
 
-      {/* SETTLE MODAL - Unchanged */}
       {settleModalOpen && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-dialog-centered"><div className="modal-content">
