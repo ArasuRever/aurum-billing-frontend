@@ -7,8 +7,8 @@ function ShopDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [shop, setShop] = useState(null);
-  const [transactions, setTransactions] = useState([]); // Borrow/Lend Items (Top tables)
-  const [fullHistory, setFullHistory] = useState([]);   // Combined History (Bottom table)
+  const [transactions, setTransactions] = useState([]); 
+  const [fullHistory, setFullHistory] = useState([]);   
   const [loading, setLoading] = useState(false);
   const [productTypes, setProductTypes] = useState([]); 
 
@@ -141,22 +141,15 @@ function ShopDetails() {
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
-            for (const row of validRows) {
-                const p = parseFloat(row.pure) || 0;
-                if (p <= 0) {
-                    setLoading(false);
-                    return alert(`Item '${row.desc || 'Unnamed'}' has 0 Pure Weight. Please check Purity/Touch %.`);
-                }
-            }
-
             validRows.forEach(row => {
                 const metalType = getMetalTypeForRow(row);
                 const isSilver = (metalType === 'SILVER');
                 const qty = parseInt(row.quantity) || 1;
-                let details = `${row.gross}g`; if(row.stock_type === 'BULK') details += ` (x${qty})`;
+                let details = `${row.desc || row.type}`; 
+                if (row.stock_type === 'BULK') details += ` (x${qty})`;
                 
                 const payload = {
-                    shop_id: id, action: actionType, description: `${row.desc || row.type} (${details})`,
+                    shop_id: id, action: actionType, description: details,
                     gross_weight: parseFloat(row.gross)||0, wastage_percent: parseFloat(row.wast)||0, making_charges: parseFloat(row.mc_total)||0,
                     pure_weight: !isSilver ? parseFloat(row.pure)||0 : 0,  
                     silver_weight: isSilver ? parseFloat(row.pure)||0 : 0, 
@@ -182,9 +175,20 @@ function ShopDetails() {
   };
 
   const getOutstanding = (t) => {
-    const origGold = parseFloat(t.pure_weight) || 0; const origSilver = parseFloat(t.silver_weight) || 0;
-    const paidGold = parseFloat(t.total_gold_paid) || 0; const paidSilver = parseFloat(t.total_silver_paid) || 0;
-    return { remGold: Math.max(0, origGold - paidGold).toFixed(3), remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), isSettled: t.is_settled };
+    const origGold = parseFloat(t.pure_weight) || 0; 
+    const origSilver = parseFloat(t.silver_weight) || 0;
+    const origCash = parseFloat(t.cash_amount) || 0;
+
+    const paidGold = parseFloat(t.total_gold_paid) || 0; 
+    const paidSilver = parseFloat(t.total_silver_paid) || 0;
+    const paidCash = parseFloat(t.total_cash_paid) || 0;
+
+    return { 
+        remGold: Math.max(0, origGold - paidGold).toFixed(3), 
+        remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), 
+        remCash: Math.max(0, origCash - paidCash).toFixed(2),
+        isSettled: t.is_settled 
+    };
   };
   
   // --- EDIT HANDLERS (UPDATED) ---
@@ -195,7 +199,7 @@ function ShopDetails() {
     const rate = parseFloat(field==='mc_rate'?value:newState.mc_rate)||0;
     const manCash = parseFloat(field==='manual_cash'?value:newState.manual_cash)||0;
     
-    // Auto Calculate Pure and Cash
+    // Auto Calculate Pure
     newState.pure = (g * (w / 100)).toFixed(3); 
     newState.mc_total = (g * rate).toFixed(2);
     newState.total_cash = (parseFloat(newState.mc_total) + manCash).toFixed(2);
@@ -203,7 +207,6 @@ function ShopDetails() {
   };
 
   const handleEditSubmit = async () => {
-    // Determine Metal Type based on User Selection in Edit Modal
     const isSilver = editForm.type === 'SILVER';
     const payload = { 
         description: editForm.description, 
@@ -216,23 +219,22 @@ function ShopDetails() {
     };
     try { 
         await api.updateShopTransaction(editForm.id, payload); 
-        alert('Updated Successfully!'); 
+        alert('Updated Successfully! Balance has been re-bucketed.'); 
         setEditModalOpen(false); 
         loadData(); 
     } catch (err) { alert('Update Failed: ' + err.message); }
   };
 
   const openEditModal = (t) => { 
-      // Reverse engineer manual cash (Total - MC)
       const totalCash = parseFloat(t.cash_amount) || 0;
       const mc = parseFloat(t.making_charges) || 0;
       const manualCash = (totalCash - mc).toFixed(2);
       const gross = parseFloat(t.gross_weight) || 0;
       const rate = gross > 0 ? (mc / gross).toFixed(2) : 0;
 
-      // Determine existing type
+      // DETECT EXISTING TYPE
       let currentType = 'GOLD';
-      if (parseFloat(t.silver_weight) > 0 && parseFloat(t.pure_weight) === 0) {
+      if (parseFloat(t.silver_weight) > 0.001) {
           currentType = 'SILVER';
       }
 
@@ -316,19 +318,25 @@ function ShopDetails() {
                 <thead className="table-danger text-dark"><tr><th>Date</th><th>Item</th><th>Gross</th><th className="text-end">Pending Pure</th><th className="text-end">Act</th></tr></thead>
                 <tbody>
                     {borrowList.map(t => {
-                        const { remGold, remSilver, isSettled } = getOutstanding(t);
+                        const { remGold, remSilver, remCash, isSettled } = getOutstanding(t);
                         return (
                         <tr key={t.id} className={isSettled ? "text-muted" : "bg-white"}>
                             <td>{new Date(t.created_at).toLocaleDateString()}</td>
                             <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-danger bg-warning bg-opacity-10">
-                                {isSettled ? <FaCheck className="text-success"/> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
-                                {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
+                                {isSettled ? <FaCheck className="text-success"/> : (
+                                    <>
+                                        {parseFloat(remGold)>0.005 && <div>{remGold}g Au</div>}
+                                        {parseFloat(remSilver)>0.005 && <div>{remSilver}g Ag</div>}
+                                        {parseFloat(remCash) > 1 && <div className="text-muted small">Bal: ₹{remCash}</div>}
+                                        {parseFloat(remGold) <= 0.005 && parseFloat(remSilver) <= 0.005 && parseFloat(remCash) <= 1 && <span>-</span>}
+                                    </>
+                                )}
                             </td>
                             <td className="text-end">
                                 {!isSettled && (
-                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Fix / Edit">
                                         <FaEdit />
                                     </button>
                                 )}
@@ -349,19 +357,25 @@ function ShopDetails() {
                 <thead className="table-success text-dark"><tr><th>Date</th><th>Item</th><th>Gross</th><th className="text-end">Pending Pure</th><th className="text-end">Act</th></tr></thead>
                 <tbody>
                     {lendList.map(t => {
-                        const { remGold, remSilver, isSettled } = getOutstanding(t);
+                        const { remGold, remSilver, remCash, isSettled } = getOutstanding(t);
                         return (
                         <tr key={t.id} className={isSettled ? "text-muted" : "bg-white"}>
                             <td>{new Date(t.created_at).toLocaleDateString()}</td>
                             <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-success bg-success bg-opacity-10">
-                                {isSettled ? <FaCheck className="text-primary"/> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
-                                {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
+                                {isSettled ? <FaCheck className="text-primary"/> : (
+                                    <>
+                                        {parseFloat(remGold)>0.005 && <div>{remGold}g Au</div>}
+                                        {parseFloat(remSilver)>0.005 && <div>{remSilver}g Ag</div>}
+                                        {parseFloat(remCash) > 1 && <div className="text-muted small">Bal: ₹{remCash}</div>}
+                                        {parseFloat(remGold) <= 0.005 && parseFloat(remSilver) <= 0.005 && parseFloat(remCash) <= 1 && <span>-</span>}
+                                    </>
+                                )}
                             </td>
                             <td className="text-end">
                                 {!isSettled && (
-                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Fix / Edit">
                                         <FaEdit />
                                     </button>
                                 )}
