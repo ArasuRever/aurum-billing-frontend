@@ -7,8 +7,8 @@ function ShopDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [shop, setShop] = useState(null);
-  const [transactions, setTransactions] = useState([]); 
-  const [fullHistory, setFullHistory] = useState([]);   
+  const [transactions, setTransactions] = useState([]); // Borrow/Lend Items (Top tables)
+  const [fullHistory, setFullHistory] = useState([]);   // Combined History (Bottom table)
   const [loading, setLoading] = useState(false);
   const [productTypes, setProductTypes] = useState([]); 
 
@@ -141,6 +141,14 @@ function ShopDetails() {
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
+            for (const row of validRows) {
+                const p = parseFloat(row.pure) || 0;
+                if (p <= 0) {
+                    setLoading(false);
+                    return alert(`Item '${row.desc || 'Unnamed'}' has 0 Pure Weight. Please check Purity/Touch %.`);
+                }
+            }
+
             validRows.forEach(row => {
                 const metalType = getMetalTypeForRow(row);
                 const isSilver = (metalType === 'SILVER');
@@ -219,7 +227,7 @@ function ShopDetails() {
     };
     try { 
         await api.updateShopTransaction(editForm.id, payload); 
-        alert('Updated Successfully! Balance has been re-bucketed.'); 
+        alert('Updated Successfully!'); 
         setEditModalOpen(false); 
         loadData(); 
     } catch (err) { alert('Update Failed: ' + err.message); }
@@ -336,7 +344,7 @@ function ShopDetails() {
                             </td>
                             <td className="text-end">
                                 {!isSettled && (
-                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Fix / Edit">
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
                                         <FaEdit />
                                     </button>
                                 )}
@@ -375,7 +383,7 @@ function ShopDetails() {
                             </td>
                             <td className="text-end">
                                 {!isSettled && (
-                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Fix / Edit">
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
                                         <FaEdit />
                                     </button>
                                 )}
