@@ -29,10 +29,22 @@ function VendorDetails() {
   const [viewMode, setViewMode] = useState('overview'); 
   const [itemSearch, setItemSearch] = useState('');
   
-  // Modals & Forms
+  // --- STATE: Edit Available Item ---
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({ item_name: '', gross_weight: '', wastage_percent: '', update_comment: '', item_image: null });
   const [previewImage, setPreviewImage] = useState(null); 
+  
+  // --- STATE: Edit History Item (New) ---
+  const [editingHistory, setEditingHistory] = useState(null);
+  const [historyForm, setHistoryForm] = useState({ 
+      item_name: '', 
+      gross_weight: '', 
+      wastage_percent: '', 
+      sold_rate: '', 
+      total_amount: '' 
+  });
+
+  // Settings
   const [purityMode, setPurityMode] = useState('TOUCH'); 
 
   // Restock & History State
@@ -216,7 +228,7 @@ function VendorDetails() {
   const autoCreateMasterItems = async (itemsToSave) => { const newItems = itemsToSave.filter(stockItem => { if (!stockItem.item_name) return false; const exists = masterItems.some(master => master.item_name.toLowerCase() === stockItem.item_name.trim().toLowerCase() && master.metal_type === stockItem.metal_type ); return !exists; }); if (newItems.length === 0) return; const grouped = {}; newItems.forEach(item => { if (!grouped[item.metal_type]) grouped[item.metal_type] = []; if (!grouped[item.metal_type].some(i => i.item_name.toLowerCase() === item.item_name.trim().toLowerCase())) { grouped[item.metal_type].push(item); } }); for (const metal of Object.keys(grouped)) { const groupItems = grouped[metal]; const names = groupItems.map(i => i.item_name.trim()); const referenceItem = groupItems[0]; try { await api.addMasterItemsBulk({ item_names: names, metal_type: metal, calc_method: 'STANDARD', default_wastage: referenceItem.wastage_percent || 0, mc_type: 'FIXED', mc_value: 0, hsn_code: '' }); } catch (err) { console.warn("Failed to auto-create master items", err); } } fetchMasterItems(); };
   const handleSubmitStock = async () => { const validRows = stockRows.filter(r => r.item_name && r.gross_weight); if (validRows.length === 0) return alert("Fill at least one row"); try { await autoCreateMasterItems(validRows); const grouped = {}; validRows.forEach(row => { if(!grouped[row.metal_type]) grouped[row.metal_type] = []; grouped[row.metal_type].push(row); }); for (const metal of Object.keys(grouped)) { const itemsToProcess = grouped[metal]; const processedItems = await Promise.all(itemsToProcess.map(async (item) => { let b64 = null; if (item.item_image && item.item_image instanceof File) { b64 = await toBase64(item.item_image); } return { ...item, pure_weight: item.calc_total_pure, item_image_base64: b64, quantity: item.stock_type === 'BULK' ? (item.quantity || 1) : 1 }; })); await api.addBatchInventory({ vendor_id: id, metal_type: metal, invoice_no: batchInvoice, items: processedItems }); } alert('Stock Added Successfully!'); setViewMode('overview'); loadAllData(); } catch(err) { console.error(err); alert('Error adding stock: ' + err.message); } };
 
-  // --- EDIT ITEM HANDLER ---
+  // --- EDIT AVAILABLE ITEM HANDLER ---
   const startEditItem = (item) => { 
       setEditingItem(item); 
       setEditForm({ 
@@ -251,6 +263,32 @@ function VendorDetails() {
       await api.updateInventory(editingItem.id, formData); 
       setEditingItem(null); 
       loadAllData(); 
+  };
+
+  // --- NEW: EDIT HISTORY ITEM HANDLER (SOLD/LENT) ---
+  const startEditHistory = (item) => {
+      setEditingHistory(item);
+      setHistoryForm({
+          item_name: item.item_name,
+          gross_weight: item.gross_weight, // Mapped to sold_weight or st.gross_weight
+          wastage_percent: item.wastage_percent, // Touch
+          sold_rate: item.sold_rate || 0,
+          total_amount: item.total_item_price || 0
+      });
+  };
+
+  const handleSaveHistory = async () => {
+      try {
+          await api.axiosInstance.put(`/vendors/update-sale-history/${editingHistory.id}`, {
+              type: editingHistory.status, // 'SOLD' or 'LENT'
+              ...historyForm
+          });
+          alert('Record Updated Successfully');
+          setEditingHistory(null);
+          loadAllData();
+      } catch(err) {
+          alert('Failed to update history: ' + (err.response?.data?.error || err.message));
+      }
   };
   
   // --- SETTLEMENT / REPAYMENT HANDLERS ---
@@ -402,7 +440,7 @@ function VendorDetails() {
                                         </td>
                                         <td className="fw-bold text-center text-primary">{item.wastage_percent}%</td>
                                         
-                                        {/* WEIGHT + VISIBLE EDIT BUTTON */}
+                                        {/* AVAILABLE ITEM: WEIGHT + EDIT */}
                                         <td>
                                             <div className="d-flex align-items-center mb-1">
                                                 <span className="fw-bold me-2">{item.gross_weight} g</span>
@@ -428,7 +466,7 @@ function VendorDetails() {
                     </div>
                 </div>
 
-                {/* SOLD / LENT HISTORY (FIXED VISIBILITY) */}
+                {/* SOLD / LENT HISTORY (UPDATED WITH BUTTONS) */}
                 <div className="card shadow-sm border-0">
                     <div className="card-header bg-white py-2 d-flex justify-content-between align-items-center">
                         <h6 className="mb-0 fw-bold text-secondary">Sold / Out History</h6>
@@ -460,11 +498,12 @@ function VendorDetails() {
                                             </div>
                                         </td>
                                         
-                                        {/* VISIBLE EDIT BUTTON HERE TOO */}
+                                        {/* HISTORY ITEM: WEIGHT + EDIT */}
                                         <td>
                                             <div className="d-flex align-items-center mb-1">
                                                 <span className="fw-bold me-2" style={{minWidth: '60px'}}>{item.gross_weight} g</span>
-                                                <button className="btn btn-sm btn-secondary ms-2" style={{padding: '0px 6px', fontSize: '10px'}} onClick={() => startEditItem(item)} title="Edit Weight / Touch">
+                                                {/* EDIT BUTTON 1: FOR WEIGHT */}
+                                                <button className="btn btn-sm btn-secondary ms-2" style={{padding: '0px 6px', fontSize: '10px'}} onClick={() => startEditHistory(item)} title="Edit Weight / Touch">
                                                     <FaEdit />
                                                 </button>
                                             </div>
@@ -477,7 +516,8 @@ function VendorDetails() {
                                         <td>{item.status === 'LENT' ? <span className="badge bg-warning text-dark">LENT</span> : <span className="badge bg-secondary">SOLD</span>}</td>
                                         <td>
                                             <div className="d-flex gap-1">
-                                                <button className="btn btn-sm btn-outline-primary py-1 px-2" onClick={() => startEditItem(item)} title="Edit Details">
+                                                {/* EDIT BUTTON 2: FOR FULL DETAILS */}
+                                                <button className="btn btn-sm btn-outline-primary py-1 px-2" onClick={() => startEditHistory(item)} title="Edit Details">
                                                     <FaEdit />
                                                 </button>
                                                 <button className="btn btn-sm btn-success py-1 px-2" onClick={() => handleSettleItem(item)} title="Settle">
@@ -545,7 +585,7 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* EDIT ITEM MODAL */}
+      {/* EDIT AVAILABLE ITEM MODAL */}
       {editingItem && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
            <div className="modal-dialog">
@@ -593,7 +633,68 @@ function VendorDetails() {
         </div>
       )}
 
-      {/* ... Other modals (Delete, Restock, etc) kept same ... */}
+      {/* --- NEW: EDIT HISTORY ITEM MODAL --- */}
+      {editingHistory && (
+        <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+           <div className="modal-dialog">
+              <div className="modal-content">
+                 <div className="modal-header bg-warning text-dark">
+                     <h5 className="modal-title">Edit Sold / Out History</h5>
+                     <button className="btn-close" onClick={() => setEditingHistory(null)}></button>
+                 </div>
+                 <div className="modal-body">
+                    <p className="text-muted small mb-3">Editing history for: <strong>{editingHistory.item_name}</strong></p>
+                    
+                    <div className="mb-2">
+                        <label className="form-label small fw-bold">Item Name</label>
+                        <input className="form-control" value={historyForm.item_name} onChange={e => setHistoryForm({...historyForm, item_name: e.target.value})} />
+                    </div>
+
+                    <div className="row g-2 mb-2">
+                        <div className="col-6">
+                            <label className="form-label small">Sold Weight (g)</label>
+                            <input className="form-control" type="number" step="0.001" value={historyForm.gross_weight} onChange={e => setHistoryForm({...historyForm, gross_weight: e.target.value})} />
+                        </div>
+                        <div className="col-6">
+                            <label className="form-label small">Touch %</label>
+                            <input className="form-control" type="number" step="0.01" value={historyForm.wastage_percent} onChange={e => setHistoryForm({...historyForm, wastage_percent: e.target.value})} />
+                        </div>
+                    </div>
+
+                    {/* Cash fields only for SOLD items */}
+                    {editingHistory.status === 'SOLD' && (
+                        <div className="card p-2 bg-light border-0 mb-3">
+                            <label className="small fw-bold text-success mb-2"><FaMoneyBillWave className="me-1"/> Sale Value (Cash)</label>
+                            <div className="row g-2">
+                                <div className="col-6">
+                                    <label className="small text-muted">Rate</label>
+                                    <input className="form-control form-control-sm" type="number" value={historyForm.sold_rate} onChange={e => setHistoryForm({...historyForm, sold_rate: e.target.value})} />
+                                </div>
+                                <div className="col-6">
+                                    <label className="small text-muted">Total Amount</label>
+                                    <input className="form-control form-control-sm" type="number" value={historyForm.total_amount} onChange={e => setHistoryForm({...historyForm, total_amount: e.target.value})} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="alert alert-warning py-2 mb-0 text-center">
+                        <small className="d-block text-muted">Pure Weight</small>
+                        <strong className="fs-5">
+                            {calculatePureDisplay(historyForm.gross_weight, historyForm.wastage_percent)} g
+                        </strong>
+                    </div>
+                 </div>
+                 <div className="modal-footer">
+                     <button className="btn btn-secondary" onClick={() => setEditingHistory(null)}>Cancel</button>
+                     <button className="btn btn-primary" onClick={handleSaveHistory}>Save Changes</button>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* ... Other modals (Delete, Restock, etc) ... */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{position:'fixed', top:0, left:0, width:'100%', height:'100%', backgroundColor:'rgba(0,0,0,0.5)', zIndex:1050, display:'flex', alignItems:'center', justifyContent:'center'}}>
             <div className="bg-white p-4 rounded shadow-lg" style={{backgroundColor:'white', padding:'20px', borderRadius:'8px', width:'450px', maxWidth:'90%'}}>

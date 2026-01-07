@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { FaEdit, FaTrash, FaCheck } from 'react-icons/fa';
 
 function ShopDetails() {
   const { id } = useParams();
@@ -19,9 +20,9 @@ function ShopDetails() {
 
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedTxn, setSelectedTxn] = useState(null);
-  const [paymentHistory, setPaymentHistory] = useState([]); 
   const [settleForm, setSettleForm] = useState({ mode: 'METAL', gold_val: '', silver_val: '', cash_val: '', metal_rate: '' });
 
+  // --- EDIT MODAL STATE ---
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState({ id: null, description: '', gross: '', wastage: '', mc_rate: '', manual_cash: '', type: 'GOLD', pure: 0, mc_total: 0, total_cash: 0 });
   const [expandedItems, setExpandedItems] = useState({});
@@ -36,14 +37,14 @@ function ShopDetails() {
         ]);
         setShop(res.data.shop); 
         setTransactions(res.data.transactions); 
-        setFullHistory(res.data.full_history || []); // New Unified History
+        setFullHistory(res.data.full_history || []); 
         setProductTypes(typeRes.data || []);
     } catch (err) { console.error(err); }
   };
 
   const toggleItemView = (id) => setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
 
-  // --- ACTIONS ---
+  // --- INITIALIZE ADD MODAL ---
   const initModal = (type) => {
     setActiveModal(type);
     setFormMode('ITEM');
@@ -57,6 +58,7 @@ function ShopDetails() {
     setForm({ description: '', item_cash: '', settle_gold: '', settle_silver: '', settle_cash: '', bulk_action: 'ADD' }); 
   };
 
+  // --- ROW HANDLERS ---
   const handleRowChange = (index, field, value) => {
     const newRows = [...itemRows];
     newRows[index][field] = value;
@@ -121,7 +123,7 @@ function ShopDetails() {
   };
   const removeRow = (i) => setItemRows(itemRows.filter((_, idx) => idx !== i));
 
-  // --- SUBMIT ---
+  // --- SUBMIT NEW TRANSACTION ---
   const handleMainSubmit = async () => {
     if (loading) return;
     setLoading(true);
@@ -139,7 +141,6 @@ function ShopDetails() {
             const manualCash = parseFloat(form.item_cash) || 0;
             if (validRows.length === 0 && manualCash === 0) { setLoading(false); return alert("Enter items or cash"); }
 
-            // Validation
             for (const row of validRows) {
                 const p = parseFloat(row.pure) || 0;
                 if (p <= 0) {
@@ -186,12 +187,15 @@ function ShopDetails() {
     return { remGold: Math.max(0, origGold - paidGold).toFixed(3), remSilver: Math.max(0, origSilver - paidSilver).toFixed(3), isSettled: t.is_settled };
   };
   
+  // --- EDIT HANDLERS (UPDATED) ---
   const handleEditChange = (field, value) => {
     const newState = { ...editForm, [field]: value };
     const g = parseFloat(field==='gross'?value:newState.gross)||0;
     const w = parseFloat(field==='wastage'?value:newState.wastage)||0;
     const rate = parseFloat(field==='mc_rate'?value:newState.mc_rate)||0;
     const manCash = parseFloat(field==='manual_cash'?value:newState.manual_cash)||0;
+    
+    // Auto Calculate Pure and Cash
     newState.pure = (g * (w / 100)).toFixed(3); 
     newState.mc_total = (g * rate).toFixed(2);
     newState.total_cash = (parseFloat(newState.mc_total) + manCash).toFixed(2);
@@ -199,6 +203,7 @@ function ShopDetails() {
   };
 
   const handleEditSubmit = async () => {
+    // Determine Metal Type based on User Selection in Edit Modal
     const isSilver = editForm.type === 'SILVER';
     const payload = { 
         description: editForm.description, 
@@ -209,11 +214,44 @@ function ShopDetails() {
         silver_weight: isSilver ? editForm.pure : 0, 
         cash_amount: editForm.total_cash 
     };
-    try { await api.updateShopTransaction(editForm.id, payload); alert('Updated!'); setEditModalOpen(false); loadData(); } catch (err) { alert('Update Failed'); }
+    try { 
+        await api.updateShopTransaction(editForm.id, payload); 
+        alert('Updated Successfully!'); 
+        setEditModalOpen(false); 
+        loadData(); 
+    } catch (err) { alert('Update Failed: ' + err.message); }
   };
 
-  const openEditModal = (t) => { setEditForm({ id: t.id, description: t.description, gross: t.gross_weight, wastage: t.wastage_percent, mc_rate: 0, manual_cash: 0, type: t.pure_weight>0?'GOLD':'SILVER', pure: t.pure_weight||t.silver_weight, mc_total: t.making_charges, total_cash: t.cash_amount }); setEditModalOpen(true); };
+  const openEditModal = (t) => { 
+      // Reverse engineer manual cash (Total - MC)
+      const totalCash = parseFloat(t.cash_amount) || 0;
+      const mc = parseFloat(t.making_charges) || 0;
+      const manualCash = (totalCash - mc).toFixed(2);
+      const gross = parseFloat(t.gross_weight) || 0;
+      const rate = gross > 0 ? (mc / gross).toFixed(2) : 0;
+
+      // Determine existing type
+      let currentType = 'GOLD';
+      if (parseFloat(t.silver_weight) > 0 && parseFloat(t.pure_weight) === 0) {
+          currentType = 'SILVER';
+      }
+
+      setEditForm({ 
+          id: t.id, 
+          description: t.description, 
+          gross: t.gross_weight, 
+          wastage: t.wastage_percent, 
+          mc_rate: rate, 
+          manual_cash: manualCash, 
+          type: currentType, 
+          pure: (currentType === 'GOLD' ? t.pure_weight : t.silver_weight), 
+          mc_total: mc, 
+          total_cash: totalCash 
+      }); 
+      setEditModalOpen(true); 
+  };
   
+  // --- SETTLE HANDLERS ---
   const openSettleModal = async (t) => { setSelectedTxn(t); setSettleModalOpen(true); };
   const handleSettleSubmit = async () => {
     let converted = 0; if (['CASH','BOTH'].includes(settleForm.mode) && settleForm.cash_val && settleForm.metal_rate) converted = (parseFloat(settleForm.cash_val) / parseFloat(settleForm.metal_rate)).toFixed(3);
@@ -285,12 +323,17 @@ function ShopDetails() {
                             <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-danger bg-warning bg-opacity-10">
-                                {isSettled ? <i className="bi bi-check-all text-success"></i> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
+                                {isSettled ? <FaCheck className="text-success"/> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
                                 {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
                             </td>
                             <td className="text-end">
+                                {!isSettled && (
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
+                                        <FaEdit />
+                                    </button>
+                                )}
                                 <button className={`btn btn-sm py-0 me-1 ${isSettled?'btn-outline-secondary':'btn-outline-danger'}`} onClick={() => openSettleModal(t)}>{isSettled?'View':'Pay'}</button>
-                                <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><i className="bi bi-trash"></i></button>
+                                <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><FaTrash /></button>
                             </td>
                         </tr>
                     )})}
@@ -313,12 +356,17 @@ function ShopDetails() {
                             <td onClick={() => toggleItemView(t.id)} style={{cursor: 'pointer'}}>{t.description}</td>
                             <td className="fw-bold">{t.gross_weight > 0 ? `${t.gross_weight}g` : '-'}</td>
                             <td className="text-end fw-bold text-success bg-success bg-opacity-10">
-                                {isSettled ? <i className="bi bi-check-all text-primary"></i> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
+                                {isSettled ? <FaCheck className="text-primary"/> : (parseFloat(remGold)>0.005 ? `${remGold}g Au` : parseFloat(remSilver)>0.005 ? `${remSilver}g Ag` : '-')}
                                 {!isSettled && t.cash_amount > 0 && <div className="text-muted small">₹{t.cash_amount}</div>}
                             </td>
                             <td className="text-end">
+                                {!isSettled && (
+                                    <button className="btn btn-sm btn-outline-primary py-0 me-1" onClick={() => openEditModal(t)} title="Edit Item">
+                                        <FaEdit />
+                                    </button>
+                                )}
                                 <button className={`btn btn-sm py-0 me-1 ${isSettled?'btn-outline-secondary':'btn-outline-success'}`} onClick={() => openSettleModal(t)}>{isSettled?'View':'Collect'}</button>
-                                <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><i className="bi bi-trash"></i></button>
+                                <button className="btn btn-link text-muted p-0" onClick={() => handleDeleteTxn(t.id)} title="Delete"><FaTrash /></button>
                             </td>
                         </tr>
                     )})}
@@ -328,7 +376,7 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* --- NEW UNIFIED HISTORY TABLE (Bottom) --- */}
+      {/* Audit Log Table (Bottom) */}
       <div className="card shadow-sm">
         <div className="card-header bg-dark text-white fw-bold">Detailed Audit Log (Transactions & Payments)</div>
         <div className="table-responsive" style={{maxHeight:'400px'}}>
@@ -370,7 +418,7 @@ function ShopDetails() {
         </div>
       </div>
 
-      {/* Modals for Add/Settle */}
+      {/* ADD MODAL (Items/Cash) - Unchanged */}
       {activeModal && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-xl">
@@ -499,33 +547,43 @@ function ShopDetails() {
         </div>
       )}
 
-      {/* Edit and Settle modals unchanged */}
+      {/* EDIT MODAL (NOW INCLUDES METAL TYPE SWITCH) */}
       {editModalOpen && (
         <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content">
               <div className="modal-header bg-primary text-white">
-                <h5 className="modal-title">Edit Item Details</h5>
+                <h5 className="modal-title">Edit Transaction Details</h5>
                 <button className="btn-close btn-close-white" onClick={() => setEditModalOpen(false)}></button>
               </div>
               <div className="modal-body">
                 <div className="mb-3">
-                    <label className="form-label small">Description</label>
+                    <label className="form-label small">Item Description</label>
                     <input className="form-control" value={editForm.description} onChange={e => handleEditChange('description', e.target.value)} />
                 </div>
+                
+                {/* NEW: Metal Type Selector */}
+                <div className="mb-3">
+                    <label className="form-label small">Metal Type (Balance Bucket)</label>
+                    <select className="form-select form-select-sm bg-light" value={editForm.type} onChange={e => handleEditChange('type', e.target.value)}>
+                        <option value="GOLD">Gold</option>
+                        <option value="SILVER">Silver</option>
+                    </select>
+                </div>
+
                 <div className="row g-2 mb-3">
                     <div className="col-6">
                         <label className="form-label small">Gross Weight (g)</label>
                         <input type="number" className="form-control" value={editForm.gross} onChange={e => handleEditChange('gross', e.target.value)} />
                     </div>
                     <div className="col-6">
-                        <label className="form-label small">Touch / Purity</label>
+                        <label className="form-label small">Touch / Purity %</label>
                         <input type="number" className="form-control" value={editForm.wastage} onChange={e => handleEditChange('wastage', e.target.value)} />
                     </div>
                 </div>
-                <div className="alert alert-warning py-2 d-flex justify-content-between">
+                <div className="alert alert-warning py-2 d-flex justify-content-between align-items-center">
                     <span>Pure Weight:</span>
-                    <strong>{editForm.pure} g ({editForm.type})</strong>
+                    <strong className="fs-5">{editForm.pure} g <small className="text-muted">({editForm.type})</small></strong>
                 </div>
                 <hr />
                 <div className="row g-2 mb-3">
@@ -542,19 +600,20 @@ function ShopDetails() {
                     <label className="form-label small">Extra Cash Loan (₹)</label>
                     <input type="number" className="form-control" value={editForm.manual_cash} onChange={e => handleEditChange('manual_cash', e.target.value)} />
                 </div>
-                <div className="alert alert-success py-2 d-flex justify-content-between">
+                <div className="alert alert-success py-2 d-flex justify-content-between align-items-center">
                     <span>Total Cash Debt:</span>
-                    <strong>₹{editForm.total_cash}</strong>
+                    <strong className="fs-5">₹{editForm.total_cash}</strong>
                 </div>
               </div>
               <div className="modal-footer">
-                 <button className="btn btn-primary w-100" onClick={handleEditSubmit}>Save Changes</button>
+                 <button className="btn btn-primary w-100 fw-bold" onClick={handleEditSubmit}>Save Changes</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* SETTLE MODAL - Unchanged */}
       {settleModalOpen && (
          <div className="modal d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
             <div className="modal-dialog modal-dialog-centered"><div className="modal-content">
