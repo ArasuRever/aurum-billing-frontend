@@ -4,11 +4,21 @@ const OldMetalReceipt = React.forwardRef(({ data, businessProfile }, ref) => {
   if (!data) return null;
   const { customer, items, totals, voucherNo } = data;
   
-  const config = (businessProfile && businessProfile.invoice_config) ? businessProfile.invoice_config : {};
+  const biz = businessProfile || {}; // ADDED: Using passed business details
+  const config = biz.invoice_config || {};
   const accentColor = config.accent_color || '#d4af37';
   const title = config.purchase_title || 'PURCHASE VOUCHER';
   const footerLeft = config.purchase_footer_left || '(Customer Sig)';
   const footerRight = config.purchase_footer_right || '(Cashier)';
+
+  // Helper for Indian Date Format
+  const formatIndianDate = (date) => {
+      return new Date(date).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+      });
+  };
 
   return (
     <div ref={ref} className="bg-white p-4 mx-auto" 
@@ -21,10 +31,24 @@ const OldMetalReceipt = React.forwardRef(({ data, businessProfile }, ref) => {
              border: '1px solid #f0f0f0' 
          }}>
         
-        {/* HEADER */}
-        <div className="text-center mb-4">
-            <h4 className="fw-bold text-uppercase mb-1" style={{color: accentColor, letterSpacing: '1px'}}>{title}</h4>
-            <div className="text-muted small">Date: {new Date().toLocaleDateString()}</div>
+        {/* HEADER: Updated to show dynamic business info */}
+        <div className="d-flex align-items-center mb-4 border-bottom pb-3">
+            {biz.logo && (
+                <img src={biz.logo} alt="Logo" style={{ maxHeight: '60px', maxWidth: '100px', marginRight: '15px' }} />
+            )}
+            <div className="flex-grow-1">
+                <h5 className="fw-bold text-uppercase m-0" style={{color: accentColor, letterSpacing: '1px'}}>
+                    {biz.business_name || 'Sri Kuberan Jewellery'}
+                </h5>
+                <div className="text-secondary small" style={{fontSize: '0.75rem'}}>
+                    {biz.address}<br/>
+                    Mob: {biz.contact_number} {biz.gst && `| GST: ${biz.gst}`}
+                </div>
+            </div>
+            <div className="text-end">
+                <h6 className="fw-bold text-uppercase m-0" style={{color: accentColor}}>{title}</h6>
+                <div className="text-muted small">Date: {formatIndianDate(new Date())}</div>
+            </div>
         </div>
         
         <div className="d-flex justify-content-between align-items-center mb-4 p-3 rounded" style={{backgroundColor: '#fafafa'}}>

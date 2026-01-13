@@ -37,14 +37,24 @@ function Dashboard() {
         }
     };
 
-    const updateRate = async (type, val) => {
-        const newRate = prompt(`Enter new ${type} Rate:`, val);
-        if (newRate && !isNaN(newRate)) {
-            await api.updateDailyRate({ metal_type: type, rate: newRate });
-            setRates(prev => ({ ...prev, [type]: newRate }));
-            // alert("Rate Updated!");
+   const updateRate = async (type, val) => {
+    const newRate = prompt(`Enter new ${type} Rate:`, val);
+    if (newRate !== null && !isNaN(newRate) && newRate !== '') {
+        try {
+            const numericRate = parseFloat(newRate);
+            // 1. Update the database
+            await api.updateDailyRate({ metal_type: type, rate: numericRate });
+            
+            // 2. Update local state so Dashboard reflects it immediately
+            setRates(prev => ({ ...prev, [type]: numericRate }));
+            
+            // 3. Optional: Refresh dashboard data to ensure sync
+            fetchDashboard(); 
+        } catch (err) {
+            alert("Failed to update rate. Please try again.");
         }
-    };
+    }
+};
 
     if (loading) return <div className="text-center mt-5"><div className="spinner-border"></div></div>;
 
