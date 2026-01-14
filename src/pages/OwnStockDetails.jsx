@@ -308,16 +308,22 @@ function OwnStockDetails() {
                             <thead className="table-light small sticky-top">
                                 <tr>
                                     <th style={{width:'30px'}} className="text-center"><input type="checkbox" className="form-check-input" onChange={handleSelectAll} checked={availableItems.length > 0 && availableItems.every(i => selectedIds[i.id])} /></th>
-                                    <th>Image</th><th>Details</th><th>Count</th><th>Wt</th><th>Actions</th>
+                                    <th>Image</th><th>Details</th><th>HUID</th><th>Count</th><th>Wt</th><th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {availableItems.length === 0 && <tr><td colSpan="6" className="text-center py-3 text-muted">No items found</td></tr>}
+                                {availableItems.length === 0 && <tr><td colSpan="7" className="text-center py-3 text-muted">No items found</td></tr>}
                                 {availableItems.map(item => (
                                     <tr key={item.id} className={selectedIds[item.id] ? 'table-primary' : ''}>
                                         <td className="text-center"><input type="checkbox" className="form-check-input" checked={!!selectedIds[item.id]} onChange={() => handleSelectRow(item.id)} /></td>
                                         <td>{item.item_image && <img src={item.item_image} style={{width:'40px',height:'40px'}} />}</td>
-                                        <td><div className="fw-bold small">{item.item_name}</div><div className="small font-monospace text-muted">{item.barcode}</div>{item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK</span>}</td>
+                                        <td>
+                                            <div className="fw-bold small">{item.item_name}</div>
+                                            <div className="small font-monospace text-muted">{item.barcode}</div>
+                                            {item.stock_type === 'BULK' && <span className="badge bg-primary text-white" style={{fontSize:'0.6rem'}}>BULK</span>}
+                                        </td>
+                                        {/* NEW CELL: Display HUID or a dash if empty */}
+                                        <td className="small fw-bold text-uppercase">{item.huid || '-'}</td>
                                         <td>{item.stock_type === 'BULK' ? (<div className="small"><strong>{item.quantity}</strong> <span className="text-muted">/ {item.total_quantity_added || '-'}</span></div>) : '-'}</td>
                                         <td><div className="fw-bold">{item.gross_weight}g</div>{item.stock_type === 'BULK' && <div className="small text-muted" style={{fontSize:'0.65rem'}}>Total: {item.total_weight_added || '-'}g</div>}</td>
                                         <td>
