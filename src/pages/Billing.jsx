@@ -84,9 +84,22 @@ function Billing() {
 
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
-      if (entry.item_name.length > 1 && !entry.item_id) {
-        try { const res = await api.searchBillingItem(entry.item_name); setSearchResults(res.data); } catch (err) {}
-      } else { setSearchResults([]); }
+      // Trigger search if it looks like a barcode (usually numbers) or a name
+      const query = entry.item_name.trim();
+      if (query.length > 1 && !entry.item_id) {
+        try { 
+          const res = await api.searchBillingItem(query); 
+          setSearchResults(res.data); 
+          
+          // AUTO-SELECT if exact barcode match is found (Scanner Support)
+          const exactMatch = res.data.find(item => item.barcode === query);
+          if (exactMatch) {
+            selectItem(exactMatch);
+          }
+        } catch (err) { console.error("Search error", err); }
+      } else { 
+        setSearchResults([]); 
+      }
     }, 300);
     return () => clearTimeout(delayDebounce);
   }, [entry.item_name, entry.item_id]);
@@ -235,10 +248,12 @@ function Billing() {
     const mc = parseFloat(item.making_charges) || 0;
     const discount = parseFloat(item.discount) || 0;
 
-    if (item.calc_method === 'STANDARD') return ((weight + wastageWt) * rate) + mc - discount;
-    if (item.calc_method === 'RATE_ADD_ON') return (weight * (rate + mc)) - discount;
-    if (item.calc_method === 'FIXED_PRICE') return (weight * rate) - discount;
-    return 0;
+    let subtotal = 0;
+    if (item.calc_method === 'STANDARD') subtotal = ((weight + wastageWt) * rate) + mc;
+    else if (item.calc_method === 'RATE_ADD_ON') subtotal = (weight * (rate + mc));
+    else if (item.calc_method === 'FIXED_PRICE') subtotal = (weight * rate);
+    
+    return subtotal - discount; // Individual item total after discount
   };
 
   const handleExchangeEntryChange = (field, value) => {
@@ -315,11 +330,24 @@ function Billing() {
 
     const billData = {
       customer: selectedCustomer,
-      items: cart.map(item => ({ ...item, total: Math.round(calculateItemTotal(item)) })),
+      // Map items and ensure total is rounded consistently with backend
+      items: cart.map(item => ({ 
+        ...item, 
+        total: Math.round(calculateItemTotal(item)) 
+      })),
       exchangeItems, 
       totals: { 
-          grossTotal, totalDiscount, taxableAmount, sgst: sgstAmount, cgst: cgstAmount, 
-          exchangeTotal, roundOff, netPayable, paidAmount: totalPaid, cashReceived: cash, onlineReceived: online,
+          grossTotal, 
+          totalDiscount, 
+          taxableAmount, 
+          sgst: sgstAmount, 
+          cgst: cgstAmount, 
+          exchangeTotal, 
+          roundOff, 
+          netPayable, 
+          paidAmount: totalPaid, 
+          cashReceived: cash, 
+          onlineReceived: online,
           balance: balance > 0 ? balance : 0 
       },
       includeGST
